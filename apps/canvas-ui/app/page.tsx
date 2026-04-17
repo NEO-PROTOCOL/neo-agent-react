@@ -6,12 +6,14 @@ import ReactFlow, {
   Background,
   BackgroundVariant,
   Controls,
+  Panel,
   type EdgeTypes,
   type Node,
   type NodeTypes,
 } from "reactflow";
 import NeoNode, { type NeoNodeData } from "@/components/canvas/nodes/NeoNode";
 import NeoEdge from "@/components/canvas/edges/NeoEdge";
+import CanvasActions from "@/components/canvas/CanvasActions";
 import NodeToolbar, { type NodeDef } from "@/components/NodeToolbar";
 import ConfiguratorDrawer from "@/components/ConfiguratorDrawer";
 import { useNeoStore } from "@/store/useNeoStore";
@@ -91,6 +93,16 @@ export default function HomePage() {
     setNodeStatus(agentId, ok ? "success" : "error");
   }, [setNodeStatus]);
 
+  const handleLayout = useCallback(() => {
+    if (nodes.length === 0) return;
+    const cols = Math.ceil(Math.sqrt(nodes.length));
+    const arranged = nodes.map((node, i) => ({
+      ...node,
+      position: { x: 80 + (i % cols) * 280, y: 80 + Math.floor(i / cols) * 180 },
+    }));
+    initGraph(arranged, edges);
+  }, [nodes, edges, initGraph]);
+
   return (
     <main className="h-screen w-screen overflow-hidden relative bg-[#060606]">
 
@@ -129,7 +141,7 @@ export default function HomePage() {
           className="absolute inset-0 z-[1] pointer-events-none"
           style={{
             backgroundImage:
-              "radial-gradient(circle, rgba(180,180,195,0.22) 1px, transparent 1px)",
+              "radial-gradient(circle, rgba(210,215,230,0.52) 1px, transparent 1px)",
             backgroundSize: "28px 28px",
             maskImage: "none",
             WebkitMaskImage: "none",
@@ -158,7 +170,10 @@ export default function HomePage() {
               size={1}
               color="rgba(255,255,255,0.03)"
             />
-            <Controls position="bottom-right" />
+            <Controls position="bottom-right" showInteractive={false} />
+            <Panel position="bottom-left">
+              <CanvasActions onLayout={handleLayout} />
+            </Panel>
           </ReactFlow>
         ) : (
           <div className="flex h-full items-center justify-center text-[11px] font-mono text-white/20 tracking-widest">

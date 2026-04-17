@@ -8,6 +8,11 @@ const SkillRefSchema = z.union([
   }),
 ]);
 
+const DocumentSchema = z.object({
+  name: z.string().min(1),
+  content: z.string(),
+});
+
 export const NeoAgentSchema = z.object({
   id: z.string().min(1),
   type: z.literal("agent"),
@@ -30,6 +35,7 @@ export const NeoAgentSchema = z.object({
     maxToolCalls: z.number().int().min(1).max(20).default(5),
   }),
   skills: z.array(SkillRefSchema).default([]),
+  documents: z.array(DocumentSchema).optional().default([]),
 });
 
 export function parseAgentConfig(rawConfig) {

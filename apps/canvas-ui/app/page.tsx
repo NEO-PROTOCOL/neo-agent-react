@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "reactflow/dist/style.css";
 import ReactFlow, {
   Background,
@@ -29,6 +29,24 @@ function nextId(prefix: string) { return `${prefix}_${(_nodeCounter++).toString(
 
 export default function HomePage() {
   const [isMounted, setIsMounted] = useState(false);
+  const canvasWrapRef = useRef<HTMLDivElement>(null);
+  const dotLayerRef   = useRef<HTMLDivElement>(null);
+
+  const handleMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (!dotLayerRef.current || !canvasWrapRef.current) return;
+    const rect = canvasWrapRef.current.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const mask = `radial-gradient(520px circle at ${x}px ${y}px, black 0%, transparent 68%)`;
+    dotLayerRef.current.style.maskImage = mask;
+    dotLayerRef.current.style.webkitMaskImage = mask;
+  }, []);
+
+  const handleMouseLeave = useCallback(() => {
+    if (!dotLayerRef.current) return;
+    dotLayerRef.current.style.maskImage = "none";
+    dotLayerRef.current.style.webkitMaskImage = "none";
+  }, []);
 
   const {
     nodes, edges, addNode, initGraph,
@@ -99,7 +117,25 @@ export default function HomePage() {
       </header>
 
       {/* canvas */}
-      <div className="absolute inset-0 pt-11">
+      <div
+        ref={canvasWrapRef}
+        className="absolute inset-0 pt-11"
+        onMouseMove={handleMouseMove}
+        onMouseLeave={handleMouseLeave}
+      >
+        {/* spotlight dot layer — visible only near the cursor via mask */}
+        <div
+          ref={dotLayerRef}
+          className="absolute inset-0 z-[1] pointer-events-none"
+          style={{
+            backgroundImage:
+              "radial-gradient(circle, rgba(180,180,195,0.22) 1px, transparent 1px)",
+            backgroundSize: "28px 28px",
+            maskImage: "none",
+            WebkitMaskImage: "none",
+          }}
+        />
+
         {isMounted ? (
           <ReactFlow
             nodes={nodes}
@@ -120,7 +156,7 @@ export default function HomePage() {
               variant={BackgroundVariant.Dots}
               gap={28}
               size={1}
-              color="rgba(255,255,255,0.07)"
+              color="rgba(255,255,255,0.03)"
             />
             <Controls position="bottom-right" />
           </ReactFlow>

@@ -1,138 +1,165 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import "reactflow/dist/style.css";
 import ReactFlow, {
   Background,
+  BackgroundVariant,
   Controls,
   type EdgeTypes,
-  type Edge,
   type Node,
   type NodeTypes,
 } from "reactflow";
-import NeoAgentConfigurator from "@/components/NeoAgentConfigurator";
 import NeoNode, { type NeoNodeData } from "@/components/canvas/nodes/NeoNode";
 import NeoEdge from "@/components/canvas/edges/NeoEdge";
+import NodeToolbar, { type NodeDef } from "@/components/NodeToolbar";
+import ConfiguratorDrawer from "@/components/ConfiguratorDrawer";
 import { useNeoStore } from "@/store/useNeoStore";
 
-const nodeTypes: NodeTypes = { agent: NeoNode, skill: NeoNode };
+const nodeTypes: NodeTypes = {
+  agent: NeoNode, skill: NeoNode, api: NeoNode,
+  orchestrator: NeoNode, trigger: NeoNode,
+};
 const edgeTypes: EdgeTypes = { default: NeoEdge };
 
 const FLOW_ID = "neo_flow_01";
 
+let _nodeCounter = 1;
+function nextId(prefix: string) { return `${prefix}_${(_nodeCounter++).toString().padStart(2, "0")}`; }
+
 export default function HomePage() {
   const [isMounted, setIsMounted] = useState(false);
-  const { nodes, edges, initGraph, onNodesChange, onEdgesChange, onConnect, setNodeStatus, listenToFlow } =
-    useNeoStore();
 
-  const initialNodes = useMemo<Node<NeoNodeData>[]>(
-    () => [
-      {
-        id: "agent_placeholder",
-        type: "agent",
-        position: { x: 100, y: 160 },
-        data: {
-          label: "Configure um agente →",
-          nodeType: "agent",
-          executionStatus: "idle",
-          memoryMode: "none",
-        },
-      },
-    ],
-    []
-  );
+  const {
+    nodes, edges, addNode, initGraph,
+    onNodesChange, onEdgesChange, onConnect,
+    setNodeStatus, setSelectedNode, selectedNodeId,
+    listenToFlow,
+  } = useNeoStore();
 
-  const initialEdges = useMemo<Edge[]>(() => [], []);
+  const initialNodes = useMemo<Node<NeoNodeData>[]>(() => [], []);
 
   useEffect(() => { setIsMounted(true); }, []);
+  useEffect(() => { if (nodes.length === 0) initGraph(initialNodes, []); }, [nodes.length, initGraph, initialNodes]);
+  useEffect(() => listenToFlow(FLOW_ID), [listenToFlow]);
 
-  useEffect(() => {
-    if (nodes.length === 0) initGraph(initialNodes, initialEdges);
-  }, [nodes.length, initGraph, initialNodes, initialEdges]);
+  const handleAdd = useCallback((def: NodeDef) => {
+    const id = nextId(def.nodeType);
+    const offset = nodes.length * 30;
+    addNode({
+      id,
+      type: def.nodeType,
+      position: { x: 200 + offset, y: 160 + offset },
+      data: {
+        label: def.label,
+        nodeType: def.nodeType,
+        executionStatus: "idle",
+        memoryMode: def.nodeType === "agent" ? "redis_sync" : undefined,
+        apiKit: def.apiKit,
+      } satisfies NeoNodeData,
+    });
+    setSelectedNode(id);
+  }, [nodes.length, addNode, setSelectedNode]);
 
-  useEffect(() => {
-    return listenToFlow(FLOW_ID);
-  }, [listenToFlow]);
+  const handleNodeClick = useCallback((_: React.MouseEvent, node: Node) => {
+    setSelectedNode(node.id);
+  }, [setSelectedNode]);
 
-  const handleExecuteStart = (agentId: string) => {
-    const exists = nodes.find((n) => n.id === agentId);
-    if (!exists) {
-      // add new node to canvas for this agent
-      const { initGraph: ig } = useNeoStore.getState();
-      const updatedNodes: Node<NeoNodeData>[] = [
-        ...nodes.filter((n) => n.id !== "agent_placeholder"),
-        {
-          id: agentId,
-          type: "agent",
-          position: { x: 100 + nodes.length * 60, y: 160 },
-          data: {
-            label: agentId,
-            nodeType: "agent",
-            executionStatus: "running",
-            memoryMode: "redis_sync",
-          },
-        },
-      ];
-      ig(updatedNodes, edges);
-    }
+  const handleExecuteStart = useCallback((agentId: string) => {
     setNodeStatus(agentId, "running");
-  };
+  }, [setNodeStatus]);
 
-  const handleExecuteDone = (agentId: string, ok: boolean) => {
+  const handleExecuteDone = useCallback((agentId: string, ok: boolean) => {
     setNodeStatus(agentId, ok ? "success" : "error");
-  };
+  }, [setNodeStatus]);
 
   return (
-    <main className="h-screen bg-[#050505] text-gray-200 flex flex-col overflow-hidden">
+    <main className="h-screen w-screen overflow-hidden relative bg-[#060606]">
 
       {/* top bar */}
-      <header className="flex items-center justify-between px-6 py-3 border-b border-[#111] shrink-0">
-        <div className="flex items-center gap-3">
-          <span className="text-sm font-bold tracking-widest text-[#39FF14]">NEO</span>
-          <span className="text-[#333]">/</span>
-          <span className="text-sm text-gray-500 tracking-wide">Agent Canvas</span>
+      <header
+        className="absolute top-0 inset-x-0 z-30 flex items-center justify-between px-5 h-11"
+        style={{
+          background: "rgba(6,6,8,0.85)",
+          backdropFilter: "blur(16px)",
+          borderBottom: "1px solid rgba(255,255,255,0.05)",
+        }}
+      >
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-bold tracking-[0.3em] text-[#39FF14]">NEO</span>
+          <span className="text-white/15 text-xs">/</span>
+          <span className="text-[11px] text-white/40 tracking-wide font-mono">Agent Canvas</span>
         </div>
-        <span className="text-[10px] text-[#333] font-mono">
-          flow: <span className="text-[#555]">{FLOW_ID}</span>
-        </span>
+        <div className="flex items-center gap-3">
+          <span className="text-[9px] font-mono text-white/20 tracking-widest">
+            FLOW <span className="text-white/35">{FLOW_ID}</span>
+          </span>
+          <div className="w-1.5 h-1.5 rounded-full bg-[#39FF14] shadow-[0_0_5px_#39FF14]" />
+        </div>
       </header>
 
-      {/* body: split */}
-      <div className="flex flex-1 overflow-hidden">
+      {/* canvas */}
+      <div className="absolute inset-0 pt-11">
+        {isMounted ? (
+          <ReactFlow
+            nodes={nodes}
+            edges={edges}
+            nodeTypes={nodeTypes}
+            edgeTypes={edgeTypes}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            onConnect={onConnect}
+            onNodeClick={handleNodeClick}
+            onPaneClick={() => setSelectedNode(null)}
+            fitView={nodes.length > 0}
+            minZoom={0.3}
+            maxZoom={2}
+            deleteKeyCode="Delete"
+          >
+            <Background
+              variant={BackgroundVariant.Dots}
+              gap={28}
+              size={1}
+              color="rgba(255,255,255,0.07)"
+            />
+            <Controls position="bottom-right" />
+          </ReactFlow>
+        ) : (
+          <div className="flex h-full items-center justify-center text-[11px] font-mono text-white/20 tracking-widest">
+            INITIALIZING CANVAS...
+          </div>
+        )}
 
-        {/* ── left: configurator ── */}
-        <aside className="w-[520px] shrink-0 border-r border-[#111] p-5 overflow-y-auto bg-[#080808]">
-          <p className="text-[10px] uppercase tracking-widest text-[#333] mb-4">Module Builder</p>
-          <NeoAgentConfigurator
-            flowId={FLOW_ID}
-            onExecuteStart={handleExecuteStart}
-            onExecuteDone={handleExecuteDone}
-          />
-        </aside>
-
-        {/* ── right: canvas ── */}
-        <section className="flex-1 relative">
-          {isMounted ? (
-            <ReactFlow
-              nodes={nodes}
-              edges={edges}
-              nodeTypes={nodeTypes}
-              edgeTypes={edgeTypes}
-              onNodesChange={onNodesChange}
-              onEdgesChange={onEdgesChange}
-              onConnect={onConnect}
-              fitView
-            >
-              <Background color="#111" gap={24} />
-              <Controls />
-            </ReactFlow>
-          ) : (
-            <div className="flex h-full items-center justify-center text-sm text-[#333]">
-              Carregando canvas...
-            </div>
-          )}
-        </section>
+        {/* empty state */}
+        {isMounted && nodes.length === 0 && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+            <p className="text-[11px] font-mono tracking-[0.3em] text-white/15 uppercase">
+              Add a module to start
+            </p>
+            <p className="text-[10px] font-mono text-white/08 mt-2">
+              ← use the toolbar on the left
+            </p>
+          </div>
+        )}
       </div>
+
+      {/* floating toolbar */}
+      {isMounted && (
+        <div className="absolute inset-y-0 left-0 flex items-center pt-11 pointer-events-none z-30">
+          <div className="pointer-events-auto">
+            <NodeToolbar onAdd={handleAdd} />
+          </div>
+        </div>
+      )}
+
+      {/* configurator drawer */}
+      <ConfiguratorDrawer
+        flowId={FLOW_ID}
+        nodeId={selectedNodeId}
+        onClose={() => setSelectedNode(null)}
+        onExecuteStart={handleExecuteStart}
+        onExecuteDone={handleExecuteDone}
+      />
     </main>
   );
 }

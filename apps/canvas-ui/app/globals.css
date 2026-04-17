@@ -2,22 +2,110 @@
 @tailwind components;
 @tailwind utilities;
 
-html,
-body {
+/* ── reset ── */
+html, body {
   margin: 0;
   padding: 0;
-  background: #050505;
+  height: 100%;
+  overflow: hidden;
+  background: #060606;
+  color-scheme: dark;
 }
 
-* {
-  box-sizing: border-box;
+* { box-sizing: border-box; }
+
+/* ── noise overlay (canvas workspace texture) ── */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9998;
+  opacity: 0.038;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='300' height='300' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 200px 200px;
 }
 
+/* ── scrollbar — thin, ghost ── */
+::-webkit-scrollbar        { width: 4px; height: 4px; }
+::-webkit-scrollbar-track  { background: transparent; }
+::-webkit-scrollbar-thumb  { background: rgba(255,255,255,0.08); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.16); }
+* { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.08) transparent; }
+
+/* ── glass base ── */
+.glass {
+  background: rgba(18, 18, 20, 0.65);
+  backdrop-filter: blur(20px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.09),
+    0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.glass-sm {
+  background: rgba(14, 14, 16, 0.75);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+/* ── acid glow utilities ── */
+.glow-green { box-shadow: 0 0 20px rgba(57,255,20,0.18), 0 0 60px rgba(57,255,20,0.06); }
+.glow-purple { box-shadow: 0 0 20px rgba(172,75,255,0.22), 0 0 60px rgba(172,75,255,0.07); }
+.glow-red    { box-shadow: 0 0 20px rgba(255,20,100,0.22), 0 0 60px rgba(255,20,100,0.07); }
+
+/* ── shimmer highlight (top edge) ── */
+.shimmer-top::before {
+  content: '';
+  position: absolute;
+  inset-x: 0;
+  top: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.15) 50%, transparent);
+  border-radius: inherit;
+}
+
+/* ── ReactFlow overrides ── */
+.react-flow__background { opacity: 0.35; }
+.react-flow__attribution { display: none !important; }
+.react-flow__controls {
+  background: rgba(14, 14, 16, 0.7) !important;
+  backdrop-filter: blur(12px) !important;
+  border: 1px solid rgba(255,255,255,0.07) !important;
+  border-radius: 8px !important;
+  box-shadow: none !important;
+  gap: 1px !important;
+}
+.react-flow__controls-button {
+  background: transparent !important;
+  border: none !important;
+  border-bottom: 1px solid rgba(255,255,255,0.04) !important;
+  color: rgba(255,255,255,0.4) !important;
+  width: 28px !important;
+  height: 28px !important;
+}
+.react-flow__controls-button:hover { color: #39FF14 !important; background: rgba(57,255,20,0.06) !important; }
+.react-flow__controls-button svg { fill: currentColor !important; }
+.react-flow__edge-path { stroke-width: 1.5; }
+.react-flow__handle {
+  width: 10px !important;
+  height: 10px !important;
+}
+
+/* ── edge energy flow animation ── */
 @keyframes neo-energy-flow {
-  0% {
-    stroke-dashoffset: 20;
-  }
-  100% {
-    stroke-dashoffset: 0;
-  }
+  to { stroke-dashoffset: -20; }
 }
+
+/* ── drawer slide-in ── */
+@keyframes drawer-in {
+  from { transform: translateX(100%); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+.drawer-in { animation: drawer-in 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+
+/* ── mac silver accent color ── */
+.text-silver { color: rgba(192, 192, 200, 0.7); }
+.border-silver { border-color: rgba(192, 192, 200, 0.12); }

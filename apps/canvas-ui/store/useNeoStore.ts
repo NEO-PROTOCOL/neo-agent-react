@@ -23,10 +23,13 @@ const NODE_STATUSES = new Set<NodeExecutionStatus>(["idle", "running", "success"
 interface NeoState {
   nodes: Node[];
   edges: Edge[];
+  selectedNodeId: string | null;
   onNodesChange: OnNodesChange;
   onEdgesChange: OnEdgesChange;
   onConnect: OnConnect;
   initGraph: (nodes: Node[], edges: Edge[]) => void;
+  addNode: (node: Node) => void;
+  setSelectedNode: (id: string | null) => void;
   setNodeStatus: (nodeId: string, status: NodeExecutionStatus) => void;
   setEdgeStatus: (edgeId: string, status: EdgeFlowStatus) => void;
   simulateFlow: (nodeId: string) => Promise<void>;
@@ -36,6 +39,7 @@ interface NeoState {
 export const useNeoStore = create<NeoState>((set, get) => ({
   nodes: [],
   edges: [],
+  selectedNodeId: null,
 
   onNodesChange: (changes: NodeChange[]) => {
     set({ nodes: applyNodeChanges(changes, get().nodes) });
@@ -56,6 +60,10 @@ export const useNeoStore = create<NeoState>((set, get) => ({
 
   initGraph: (nodes, edges) => set({ nodes, edges }),
 
+  addNode: (node) => set({ nodes: [...get().nodes, node] }),
+
+  setSelectedNode: (id) => set({ selectedNodeId: id }),
+
   setNodeStatus: (nodeId, status) => {
     set({
       nodes: get().nodes.map((node) =>
@@ -65,13 +73,7 @@ export const useNeoStore = create<NeoState>((set, get) => ({
       ),
       edges: get().edges.map((edge) =>
         edge.target === nodeId
-          ? {
-              ...edge,
-              data: {
-                ...edge.data,
-                flowStatus: status === "running" ? "active" : "idle",
-              },
-            }
+          ? { ...edge, data: { ...edge.data, flowStatus: status === "running" ? "active" : "idle" } }
           : edge
       ),
     });
@@ -96,7 +98,6 @@ export const useNeoStore = create<NeoState>((set, get) => ({
 
   listenToFlow: (flowId) => {
     const { setNodeStatus } = get();
-    // encodeURIComponent prevents flowId with ?, &, # from corrupting the URL
     const url = `/api/flow-stream?flowId=${encodeURIComponent(flowId)}`;
     const eventSource = new EventSource(url);
 
@@ -107,16 +108,9 @@ export const useNeoStore = create<NeoState>((set, get) => ({
           status?: unknown;
           data?: unknown;
         };
-
         const nodeId = typeof payload.nodeId === "string" ? payload.nodeId : null;
         const status = typeof payload.status === "string" ? payload.status : null;
-
-        if (
-          nodeId &&
-          nodeId.length > 0 &&
-          status &&
-          NODE_STATUSES.has(status as NodeExecutionStatus)
-        ) {
+        if (nodeId && nodeId.length > 0 && status && NODE_STATUSES.has(status as NodeExecutionStatus)) {
           setNodeStatus(nodeId, status as NodeExecutionStatus);
         }
       } catch (error) {

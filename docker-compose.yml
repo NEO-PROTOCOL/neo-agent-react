@@ -1,0 +1,37 @@
+version: "3.9"
+
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  canvas-ui:
+    image: node:22-alpine
+    working_dir: /app
+    command: sh -c "corepack enable && pnpm --dir apps/canvas-ui install && pnpm --dir apps/canvas-ui dev"
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - WORKER_BASE_URL=http://worker:4001
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./:/app
+    depends_on:
+      - redis
+      - worker
+
+  worker:
+    image: node:22-alpine
+    working_dir: /app
+    command: sh -c "corepack enable && pnpm --dir services/worker install && pnpm --dir services/worker start:api"
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - PORT=4001
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+    ports:
+      - "4001:4001"
+    volumes:
+      - ./:/app
+    depends_on:
+      - redis

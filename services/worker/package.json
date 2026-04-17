@@ -1,0 +1,14 @@
+{
+  "name": "neo-worker",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "start:api": "node server.js"
+  },
+  "dependencies": {
+    "@neo/engine": "file:../../packages/engine",
+    "fastify": "^5.2.1"
+  }
+}

@@ -6,7 +6,7 @@ const MAX_NODES_PER_REQUEST = 50;
 
 const app = Fastify({
   logger: true,
-  bodyLimit: 512 * 1024, // 512 KB — prevents large-payload DoS
+  bodyLimit: 512 * 1024,
 });
 
 app.get("/health", async () => ({ ok: true, service: "neo-worker" }));
@@ -18,7 +18,8 @@ app.post("/flows/:flowId/execute", async (request, reply) => {
     return reply.code(400).send({ error: "flowId inválido" });
   }
 
-  const { nodes } = (request.body as { nodes?: unknown[] }) || {};
+  const body = request.body || {};
+  const { nodes } = body;
 
   if (!Array.isArray(nodes) || nodes.length === 0) {
     return reply.code(400).send({ error: "Body deve conter nodes[]" });
@@ -29,20 +30,18 @@ app.post("/flows/:flowId/execute", async (request, reply) => {
   }
 
   const worker = new NeoWorker();
-  const results: { id: unknown; result: unknown }[] = [];
+  const results = [];
 
   try {
     for (const node of nodes) {
       const result = await worker.executeNode(flowId, node);
-      results.push({ id: (node as { id?: unknown }).id, result });
+      results.push({ id: node.id, result });
     }
     return { ok: true, flowId, processed: results.length, results };
   } catch (err) {
-    // Never leak internal stack traces to the caller
     const message = err instanceof Error ? err.message : "Falha na execução";
     return reply.code(500).send({ ok: false, error: message });
   } finally {
-    // Each worker owns its own connections — safe to close unconditionally
     await worker.close();
   }
 });

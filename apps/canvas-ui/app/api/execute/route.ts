@@ -49,6 +49,32 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     const message = err instanceof Error ? err.message : "Erro ao chamar worker";
     console.error(`[execute] Erro: ${message}`, err);
+    
+    // Fallback: tentar com domínio público se DNS privado falhar
+    if (message.includes("ENOTFOUND") || message.includes("getaddrinfo")) {
+      console.log(`[execute] DNS privado falhou, tentando domínio público...`);
+      try {
+        const publicUrl = `https://worker-production-bcef.up.railway.app/flows/${flowId}/execute`;
+        console.log(`[execute] URL pública: ${publicUrl}`);
+        
+        const publicUpstream = await fetch(publicUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ nodes }),
+          signal: controller.signal,
+        });
+
+        console.log(`[execute] Status do worker (público): ${publicUpstream.status}`);
+        const publicData = await publicUpstream.json();
+        console.log(`[execute] Resposta do worker (público): ${JSON.stringify(publicData)}`);
+        return Response.json(publicData, { status: publicUpstream.status });
+      } catch (publicErr) {
+        const publicMessage = publicErr instanceof Error ? publicErr.message : "Erro ao chamar worker público";
+        console.error(`[execute] Erro no fallback público: ${publicMessage}`, publicErr);
+        return Response.json({ error: publicMessage, details: String(publicErr) }, { status: 502 });
+      }
+    }
+    
     return Response.json({ error: message, details: String(err) }, { status: 502 });
   } finally {
     clearTimeout(timeout);

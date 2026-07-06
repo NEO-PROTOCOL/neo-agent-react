@@ -25,23 +25,33 @@ export async function POST(req: NextRequest) {
     return Response.json({ error: "WORKER_BASE_URL não configurado" }, { status: 503 });
   }
 
+  console.log(`[execute] Chamando worker em: ${workerUrl}/flows/${flowId}/execute`);
+  console.log(`[execute] Nodes: ${JSON.stringify(nodes)}`);
+
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 120_000); // 2 min
 
   try {
-    const upstream = await fetch(`${workerUrl}/flows/${flowId}/execute`, {
+    const url = `${workerUrl}/flows/${flowId}/execute`;
+    console.log(`[execute] URL completa: ${url}`);
+
+    const upstream = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ nodes }),
       signal: controller.signal,
     });
 
+    console.log(`[execute] Status do worker: ${upstream.status}`);
     const data = await upstream.json();
+    console.log(`[execute] Resposta do worker: ${JSON.stringify(data)}`);
     return Response.json(data, { status: upstream.status });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Erro ao chamar worker";
-    return Response.json({ error: message }, { status: 502 });
+    console.error(`[execute] Erro: ${message}`, err);
+    return Response.json({ error: message, details: String(err) }, { status: 502 });
   } finally {
     clearTimeout(timeout);
   }
 }
+

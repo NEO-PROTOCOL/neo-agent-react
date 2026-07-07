@@ -7,7 +7,7 @@
 ========================================
 Status: ACTIVE
 Mode: DISTRIBUTED SERVICES
-Package Manager: pnpm@10.33.0
+Package Manager: pnpm@11.7.0
 ========================================
 ```
 

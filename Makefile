@@ -20,7 +20,7 @@ setup: ## Garante pnpm via corepack
 	@corepack enable
 
 deps: ## Instala dependências do monorepo
-	@pnpm --dir apps/canvas-ui install && pnpm --dir services/worker install
+	@pnpm install
 
 dev: infra-up ## Sobe Redis e inicia UI local
 	@REDIS_URL=$(REDIS_URL) pnpm --dir apps/canvas-ui dev

@@ -1,0 +1,38 @@
+<svg width="1200" height="420" viewBox="0 0 1200 420" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1200" height="420" fill="#09131A"/>
+  <rect x="34" y="34" width="1132" height="352" rx="24" fill="url(#bg)"/>
+  <rect x="34" y="34" width="1132" height="352" rx="24" stroke="#6EE7F9" stroke-opacity="0.25"/>
+
+  <circle cx="188" cy="210" r="84" fill="#0B202A" stroke="#6EE7F9" stroke-opacity="0.5" stroke-width="2"/>
+  <circle cx="188" cy="210" r="52" fill="#102B36" stroke="#D7FF64" stroke-opacity="0.7" stroke-width="2"/>
+  <circle cx="188" cy="210" r="20" fill="#D7FF64"/>
+
+  <path d="M240 152H365" stroke="#6EE7F9" stroke-width="3" stroke-linecap="round"/>
+  <path d="M240 210H365" stroke="#6EE7F9" stroke-width="3" stroke-linecap="round"/>
+  <path d="M240 268H365" stroke="#6EE7F9" stroke-width="3" stroke-linecap="round"/>
+
+  <rect x="392" y="120" width="248" height="180" rx="18" fill="#08171F" stroke="#6EE7F9" stroke-opacity="0.35"/>
+  <text x="426" y="166" fill="#D7FF64" font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, monospace" font-size="20">renderCanvas()</text>
+  <text x="426" y="214" fill="#E8F4F8" font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, monospace" font-size="20">enqueueJob()</text>
+  <text x="426" y="262" fill="#E8F4F8" font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, monospace" font-size="20">streamSSE()</text>
+
+  <path d="M640 210H745" stroke="#6EE7F9" stroke-width="3" stroke-linecap="round"/>
+  <path d="M732 197L745 210L732 223" stroke="#6EE7F9" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <rect x="760" y="110" width="314" height="200" rx="18" fill="#08171F" stroke="#D7FF64" stroke-opacity="0.45"/>
+  <text x="796" y="160" fill="#D7FF64" font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, monospace" font-size="22">AGENT RUNTIME</text>
+  <text x="796" y="204" fill="#E8F4F8" font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, monospace" font-size="18">Next.js Canvas UI</text>
+  <text x="796" y="236" fill="#E8F4F8" font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, monospace" font-size="18">Fastify Worker engine</text>
+  <text x="796" y="268" fill="#E8F4F8" font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, monospace" font-size="18">Redis queue &amp; PubSub</text>
+
+  <text x="86" y="86" fill="#6EE7F9" font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, monospace" font-size="18" letter-spacing="2">NEO PROTOCOL</text>
+  <text x="84" y="346" fill="#E8F4F8" font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, monospace" font-size="44" font-weight="700">neo-agent-react</text>
+  <text x="84" y="376" fill="#9BB7C3" font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, monospace" font-size="18">Visual Agent Canvas &amp; Fastify Worker runtime powered by Next.js and Redis.</text>
+
+  <defs>
+    <linearGradient id="bg" x1="62" y1="48" x2="1124" y2="372" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#10222D"/>
+      <stop offset="1" stop-color="#0B151C"/>
+    </linearGradient>
+  </defs>
+</svg>

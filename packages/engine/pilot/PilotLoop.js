@@ -317,12 +317,18 @@ export class PilotLoop {
       reviewRef === "review_2" ? 2 : reviewRef ? 1 : 0,
       memory.status
     );
+    const finalState = await this.worker.getContext(intent.task_id);
+    const finalAttempt = reviewRef === "review_2" ? 2 : reviewRef ? 1 : 0;
+    const artifact = finalAttempt
+      ? finalState[`execution_${finalAttempt}`]?.action?.output || null
+      : null;
 
     return {
       ok: decision === "APPROVED",
       task_id: intent.task_id,
       status: decision,
       approval,
+      artifact,
       memory_status: memory.status,
       ...(error ? { error } : {}),
     };

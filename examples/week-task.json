@@ -1,5 +1,5 @@
 {
-  "task_id": "pilot-week-2026-08-31-manual-002",
+  "task_id": "pilot-week-2026-08-31-manual-003",
   "intention": "Transformar segunda: revisar backlog em uma checklist Markdown com exatamente um item.",
   "acceptance_criteria": [
     "A saida possui exatamente um item Markdown contendo revisar backlog"

@@ -214,6 +214,7 @@ test("Operator normaliza Task e Guardian permite somente um retry antes de aprov
 
   assert.equal(result.ok, true);
   assert.equal(result.status, "APPROVED");
+  assert.deepEqual(result.artifact, { markdown: "- [ ] revisar backlog" });
   assert.equal(state.guardian_1.decision, "RETRY");
   assert.equal(state.approval.decision, "APPROVED");
   assert.equal(state.runtime.attempt, 2);
@@ -235,6 +236,7 @@ test("Guardian interrompe plano com efeito externo antes do Executor", async () 
 
   assert.equal(result.ok, false);
   assert.equal(result.status, "NEEDS_HUMAN");
+  assert.equal(result.artifact, null);
   assert.equal(result.approval.authority_rule, "PLAN_EXTERNAL_EFFECT");
   assert.equal(state.execution_1, undefined);
   assert.equal(adapter.calls, 2);
@@ -250,6 +252,7 @@ test("Guardian exige humano para risco nao baixo antes do Executor", async () =>
 
   assert.equal(result.ok, false);
   assert.equal(result.status, "NEEDS_HUMAN");
+  assert.equal(result.artifact, null);
   assert.equal(result.approval.authority_rule, "TASK_RISK_NOT_LOW");
   assert.equal(state.execution_1, undefined);
   assert.equal(adapter.calls, 2);
@@ -267,6 +270,7 @@ test("Guardian nao aceita evidencia que diverge do output real", async () => {
 
   assert.equal(result.ok, false);
   assert.equal(result.status, "NEEDS_HUMAN");
+  assert.equal(result.artifact, null);
   assert.equal(result.error.code, "EVIDENCE_OUTPUT_MISMATCH");
   assert.equal(state.review_1, undefined);
   assert.equal(adapter.calls, 3);
@@ -281,6 +285,7 @@ test("Fallback de provider nunca e tratado como execucao real", async () => {
 
   assert.equal(result.ok, false);
   assert.equal(result.status, "NEEDS_HUMAN");
+  assert.equal(result.artifact, null);
   assert.equal(result.error.code, "BLOCKED_CONFIGURATION");
   assert.equal(state.approval.authority_rule, "BLOCKED_CONFIGURATION");
   assert.equal(adapter.calls, 0);

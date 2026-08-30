@@ -37,6 +37,25 @@ export class NeoWorker {
     console.log(`[NEO_BUS] ${nodeId} -> ${status}`);
   }
 
+  async getContext(flowId) {
+    await this._ensureConnected();
+    const contextRaw = await this._redis.hGetAll(`context:${flowId}`);
+    return Object.fromEntries(
+      Object.entries(contextRaw).map(([key, value]) => {
+        try {
+          return [key, JSON.parse(value)];
+        } catch {
+          return [key, value];
+        }
+      })
+    );
+  }
+
+  async setContextField(flowId, key, value) {
+    await this._ensureConnected();
+    await this._redis.hSet(`context:${flowId}`, key, JSON.stringify(value));
+  }
+
   async executeNode(flowId, nodeConfig) {
     await this._ensureConnected();
     const validatedNode = parseAgentConfig(nodeConfig);
@@ -45,16 +64,7 @@ export class NeoWorker {
     try {
       await this.broadcastStatus(flowId, nodeId, "running");
 
-      const contextRaw = await this._redis.hGetAll(`context:${flowId}`);
-      const parsedContext = Object.fromEntries(
-        Object.entries(contextRaw).map(([key, value]) => {
-          try {
-            return [key, JSON.parse(value)];
-          } catch {
-            return [key, value];
-          }
-        })
-      );
+      const parsedContext = await this.getContext(flowId);
       const reducedContext = this.stateReducer.reduce(
         parsedContext,
         systemConfig.requiredContextKeys || []
@@ -91,7 +101,7 @@ export class NeoWorker {
         },
       });
 
-      await this._redis.hSet(`context:${flowId}`, nodeId, JSON.stringify(result));
+      await this.setContextField(flowId, nodeId, result);
       await this.broadcastStatus(flowId, nodeId, "success", result);
       return result;
     } catch (error) {

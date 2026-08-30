@@ -1,5 +1,9 @@
 import Fastify from "fastify";
 import { NeoWorker } from "../../packages/engine/worker.js";
+import { NeoContextGateway, loadRuntimeDocuments } from "../../packages/engine/pilot/adapters.js";
+import { prepareWeekIntent } from "../../packages/engine/pilot/contracts.js";
+import { PilotLoop } from "../../packages/engine/pilot/PilotLoop.js";
+import { createPilotRoles } from "../../packages/engine/pilot/roles.js";
 
 const FLOW_ID_PATTERN = /^[a-zA-Z0-9_-]{1,128}$/;
 const MAX_NODES_PER_REQUEST = 50;
@@ -46,9 +50,49 @@ app.post("/flows/:flowId/execute", async (request, reply) => {
   }
 });
 
-const port = Number(process.env.PORT || 4001);
+app.post("/pilot/tasks/:taskId/run", async (request, reply) => {
+  const { taskId } = request.params;
+  if (!FLOW_ID_PATTERN.test(taskId)) {
+    return reply.code(400).send({ error: "taskId invalido" });
+  }
 
-app.listen({ port, host: "0.0.0.0" }).catch((err) => {
+  let intent;
+  let doctrine;
+  try {
+    intent = prepareWeekIntent({ ...(request.body || {}), task_id: taskId });
+    doctrine = await loadRuntimeDocuments(process.env.NEO_AGENT_RUNTIME_ROOT);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Entrada invalida";
+    return reply.code(400).send({ ok: false, error: message });
+  }
+
+  const worker = new NeoWorker();
+  const roles = createPilotRoles({
+    providerId: process.env.PILOT_PROVIDER || "gemini",
+    model: process.env.PILOT_MODEL || undefined,
+    documents: doctrine.documents,
+  });
+  const loop = new PilotLoop({
+    worker,
+    roles,
+    memoryGateway: new NeoContextGateway(),
+  });
+
+  try {
+    const result = await loop.run(intent, { doctrineVersion: doctrine.version });
+    return result;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Falha no piloto";
+    return reply.code(409).send({ ok: false, error: message });
+  } finally {
+    await worker.close();
+  }
+});
+
+const port = Number(process.env.PORT || 4001);
+const host = process.env.HOST || "0.0.0.0";
+
+app.listen({ port, host }).catch((err) => {
   app.log.error(err);
   process.exit(1);
 });

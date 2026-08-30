@@ -16,7 +16,8 @@ const DocumentSchema = z.object({
 export const NeoAgentSchema = z.object({
   id: z.string().min(1),
   type: z.literal("agent"),
-  provider: z.enum(["gemini-1.5-pro", "gpt-4o", "llama-3-local"]),
+  provider: z.string().min(1),
+  model: z.string().min(1).optional(),
   config: z
     .object({
       temperature: z.number().min(0).max(1).default(0.2),

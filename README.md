@@ -60,6 +60,31 @@ make ui
 make worker-api
 ```
 
+### Piloto semanal local
+
+O loop `Operator → Planner → Executor → Reviewer → Guardian` roda somente no
+worker local. Redis é a fonte de verdade em `context:<task_id>`; o Executor do
+piloto não recebe tools.
+
+Com a credencial do provider já disponível no ambiente:
+
+```bash
+make infra-up
+NEO_AGENT_RUNTIME_ROOT=/Users/nettomello/neomello/neo-agent-runtime/neo-agent-runtime \
+  HOST=127.0.0.1 \
+  PILOT_PROVIDER=gemini \
+  pnpm start:worker-api
+```
+
+Em outro terminal:
+
+```bash
+pnpm pilot:run -- --input /caminho/absoluto/week-task.json
+```
+
+`PILOT_MODEL` seleciona o modelo do adapter sem alterar o `PilotLoop`.
+O Guardian permite no máximo uma repetição e bloqueia efeitos externos.
+
 ────────────────────────────────────────
 
 ## ◬ Contrato de Runtime

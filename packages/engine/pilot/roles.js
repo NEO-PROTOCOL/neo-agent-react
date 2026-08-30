@@ -84,7 +84,13 @@ const executionOutputSchema = {
         kind: { type: "string", enum: ["generate_structured_text"] },
         input_checksum: { type: "string" },
         status: { type: "string", enum: ["completed", "failed"] },
-        output: { type: "object" },
+        output: {
+          type: "object",
+          properties: {
+            markdown: { type: "string" },
+          },
+          required: ["markdown"],
+        },
         started_at: { type: "string" },
         finished_at: { type: "string" },
       },
@@ -222,6 +228,8 @@ export function createPilotRoles({ providerId, model, documents = [] }) {
         constraints: [
           "Nao chamar tools, rede, filesystem, Git ou producao.",
           "Produzir somente output estruturado e evidencia observavel.",
+          "Registrar o artefato em action.output.markdown.",
+          "Copiar o markdown produzido exatamente em evidence.checks[].observed.",
           "Nao afirmar sucesso quando um criterio nao foi observado.",
           "Usar attempt igual ao numero da tentativa atual.",
         ],

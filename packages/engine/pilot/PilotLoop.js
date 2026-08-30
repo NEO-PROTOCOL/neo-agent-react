@@ -156,12 +156,14 @@ export class PilotLoop {
       assertRealProviderResult(operatorRaw, "Operator");
       const task = TaskSchema.parse(operatorRaw);
       assertTaskBoundary(task, intent);
+      task.created_at = this.now().toISOString();
       await this.#write(intent.task_id, "task", task);
       await this.#status(intent.task_id, "PLANNING", 0, memory.status);
 
       const planRaw = await this.worker.executeNode(intent.task_id, this.roles.planner);
       assertRealProviderResult(planRaw, "Planner");
       const plan = PlanSchema.parse(planRaw);
+      plan.created_at = this.now().toISOString();
       await this.#write(intent.task_id, "plan", plan);
 
       const planIssue = assessPlan(task, plan);
@@ -177,6 +179,7 @@ export class PilotLoop {
 
       for (let attempt = 1; attempt <= task.max_attempts; attempt += 1) {
         await this.#status(intent.task_id, "EXECUTING", attempt, memory.status);
+        const executionStartedAt = this.now().toISOString();
         const executionRaw = await this.worker.executeNode(
           intent.task_id,
           this.roles.executor(attempt)
@@ -186,6 +189,9 @@ export class PilotLoop {
         this.#assertExecutionBoundary(task, plan, execution, attempt);
         execution.action.input_checksum = stableChecksum({ task, plan, attempt });
         execution.evidence.checksum_sha256 = stableChecksum(execution.action.output);
+        execution.action.started_at = executionStartedAt;
+        execution.action.finished_at = this.now().toISOString();
+        execution.evidence.observed_at = execution.action.finished_at;
         await this.#write(intent.task_id, `execution_${attempt}`, execution);
 
         await this.#status(intent.task_id, "REVIEWING", attempt, memory.status);
@@ -196,6 +202,7 @@ export class PilotLoop {
         assertRealProviderResult(reviewRaw, "Reviewer");
         const review = ReviewSchema.parse(reviewRaw);
         this.#assertReviewBoundary(task, execution, review);
+        review.reviewed_at = this.now().toISOString();
         await this.#write(intent.task_id, `review_${attempt}`, review);
         lastReviewRef = `review_${attempt}`;
 
@@ -256,6 +263,16 @@ export class PilotLoop {
     }
     if (execution.evidence.action_id !== execution.action.action_id) {
       throw new PilotError("EVIDENCE_ACTION_MISMATCH", "Evidence nao referencia Action");
+    }
+    if (
+      execution.evidence.checks.some(
+        (check) => check.observed !== execution.action.output.markdown
+      )
+    ) {
+      throw new PilotError(
+        "EVIDENCE_OUTPUT_MISMATCH",
+        "Evidence nao corresponde ao markdown produzido"
+      );
     }
   }
 

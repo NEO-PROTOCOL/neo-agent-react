@@ -1,0 +1,16 @@
+{
+  "task_id": "pilot-week-2026-08-31-manual-002",
+  "intention": "Transformar segunda: revisar backlog em uma checklist Markdown com exatamente um item.",
+  "acceptance_criteria": [
+    "A saida possui exatamente um item Markdown contendo revisar backlog"
+  ],
+  "constraints": [
+    "Sem tools externas",
+    "Sem escrita em filesystem, Git ou producao"
+  ],
+  "source": {
+    "type": "manual",
+    "ref": "local://week-task/2026-08-31",
+    "revision": "manual-001"
+  }
+}

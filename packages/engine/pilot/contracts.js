@@ -73,7 +73,9 @@ export const ExecutionSchema = z.object({
     kind: z.literal("generate_structured_text"),
     input_checksum: z.string().regex(/^[a-f0-9]{64}$/),
     status: z.enum(["completed", "failed"]),
-    output: z.record(z.unknown()),
+    output: z.object({
+      markdown: z.string().min(1),
+    }),
     started_at: z.string().datetime(),
     finished_at: z.string().datetime(),
   }),

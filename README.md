@@ -73,6 +73,7 @@ make infra-up
 NEO_AGENT_RUNTIME_ROOT=/Users/nettomello/neomello/neo-agent-runtime/neo-agent-runtime \
   HOST=127.0.0.1 \
   PILOT_PROVIDER=gemini \
+  PILOT_MODEL=gemini-3.5-flash-lite \
   pnpm start:worker-api
 ```
 

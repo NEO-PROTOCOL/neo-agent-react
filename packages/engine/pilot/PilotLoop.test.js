@@ -135,6 +135,7 @@ function plan(taskId, effect = "none") {
 }
 
 function execution(taskId, attempt, passed) {
+  const markdown = passed ? "- [ ] revisar backlog" : "revisar backlog";
   return {
     schema_version: "pilot.v1",
     task_id: taskId,
@@ -146,7 +147,7 @@ function execution(taskId, attempt, passed) {
       input_checksum: "0".repeat(64),
       status: "completed",
       output: {
-        markdown: passed ? "- [ ] revisar backlog" : "revisar backlog",
+        markdown,
       },
       started_at: NOW,
       finished_at: NOW,
@@ -156,7 +157,7 @@ function execution(taskId, attempt, passed) {
       action_id: `action-${attempt}`,
       kind: "structured_output",
       checksum_sha256: "0".repeat(64),
-      checks: [{ criterion: CRITERION, passed, observed: passed ? "1 item" : "0 itens" }],
+      checks: [{ criterion: CRITERION, passed, observed: markdown }],
       observed_at: NOW,
     },
   };
@@ -252,6 +253,23 @@ test("Guardian exige humano para risco nao baixo antes do Executor", async () =>
   assert.equal(result.approval.authority_rule, "TASK_RISK_NOT_LOW");
   assert.equal(state.execution_1, undefined);
   assert.equal(adapter.calls, 2);
+});
+
+test("Guardian nao aceita evidencia que diverge do output real", async () => {
+  const intent = prepareWeekIntent(rawIntent("pilot-evidence-mismatch"), () => new Date(NOW));
+  const invalidExecution = execution(intent.task_id, 1, true);
+  invalidExecution.action.output.markdown = "conteudo diferente";
+  const responses = [task(intent), plan(intent.task_id), invalidExecution];
+  const { adapter, worker, loop } = harness(responses);
+
+  const result = await loop.run(intent);
+  const state = await worker.getContext(intent.task_id);
+
+  assert.equal(result.ok, false);
+  assert.equal(result.status, "NEEDS_HUMAN");
+  assert.equal(result.error.code, "EVIDENCE_OUTPUT_MISMATCH");
+  assert.equal(state.review_1, undefined);
+  assert.equal(adapter.calls, 3);
 });
 
 test("Fallback de provider nunca e tratado como execucao real", async () => {

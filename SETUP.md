@@ -17,6 +17,7 @@ make bootstrap
 ```
 
 O comando acima executa:
+
 1. `corepack enable` para garantir o pnpm na versão declarada.
 2. `pnpm install` na raiz do monorepo, resolvendo todos os pacotes (`apps/*`, `packages/*`, `services/*`).
 
@@ -51,9 +52,11 @@ NEO_AGENT_RUNTIME_ROOT=/Users/nettomello/neomello/neo-agent-runtime/neo-agent-ru
 ### Comandos do Makefile
 
 | Comando | Descrição |
-|---|---|
+| --- | --- |
 | `make help` | Exibe o menu interativo com todos os comandos disponíveis |
 | `make bootstrap` | Inicialização completa do ambiente e instalação de dependências |
+| `make setup` | Garante o pnpm na versão correta via corepack |
+| `make deps` | Instala todas as dependências do monorepo (`pnpm install`) |
 | `make dev` | Sobe o Redis local via Docker e inicializa o servidor de desenvolvimento da UI |
 | `make ui` | Inicia somente a interface Next.js (`apps/canvas-ui`) |
 | `make worker` | Inicia o worker em modo standalone |
@@ -61,11 +64,15 @@ NEO_AGENT_RUNTIME_ROOT=/Users/nettomello/neomello/neo-agent-runtime/neo-agent-ru
 | `make infra-up` | Inicializa o container Redis local em background |
 | `make infra-down` | Derruba os containers da infraestrutura local |
 | `make infra-logs` | Acompanha os logs do Redis em tempo real |
+| `make docker-dev` | Sobe a stack via Docker (canvas-ui + redis) |
+| `make docker-up` | Sobe a stack completa local (redis + worker + canvas-ui) |
 | `make checks` | Executa validação de tipagem (`typecheck`) e linter (`lint`) |
 | `make typecheck` | Executa checagem de tipos com TypeScript no canvas-ui |
 | `make lint` | Executa o ESLint no frontend |
 | `make build` | Executa o build de produção do Next.js |
-| `make repair` | Limpa `node_modules` e reinstala todas as dependências |
+| `make clean` | Limpa artefatos locais comuns (`apps/canvas-ui/.next`) |
+| `make reset` | Reset local sem remover lockfile/node_modules |
+| `make repair` | Manutenção Nível 1: limpa e reinstala o `node_modules` |
 
 ### Scripts do Package.json
 
@@ -82,14 +89,19 @@ NEO_AGENT_RUNTIME_ROOT=/Users/nettomello/neomello/neo-agent-runtime/neo-agent-ru
 ### Modo Híbrido Recomendado
 
 1. Em um terminal, inicie a infraestrutura:
+
    ```bash
    make infra-up
    ```
+
 2. Inicie a API do Worker:
+
    ```bash
    make worker-api
    ```
+
 3. Em outro terminal, inicie a interface de usuário:
+
    ```bash
    make ui
    ```

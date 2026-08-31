@@ -10,9 +10,18 @@ export const EffectSchema = z.enum([
   "git",
   "production",
 ]);
+export const RelationKindSchema = z.enum([
+  "runtime",
+  "infrastructure",
+  "capability",
+  "knowledge",
+  "architectural_influence",
+  "knowledge_candidate",
+]);
 
 export const RawWeekIntentSchema = z.object({
   task_id: TaskIdSchema,
+  current_node: TaskIdSchema.default("neo-agent-react"),
   intention: z.string().min(1),
   acceptance_criteria: z.array(z.string().min(1)).min(1),
   constraints: z.array(z.string().min(1)).default([]),
@@ -33,6 +42,7 @@ export const WeekIntentSchema = RawWeekIntentSchema.extend({
 export const TaskSchema = z.object({
   schema_version: z.literal("pilot.v1"),
   task_id: TaskIdSchema,
+  current_node: TaskIdSchema.default("neo-agent-react"),
   objective: z.string().min(1),
   acceptance_criteria: z.array(z.string().min(1)).min(1),
   source: WeekIntentSchema.shape.source,
@@ -75,6 +85,16 @@ export const ExecutionSchema = z.object({
     status: z.enum(["completed", "failed"]),
     output: z.object({
       markdown: z.string().min(1),
+      claims: z
+        .array(
+          z.object({
+            statement: z.string().min(1),
+            node_id: TaskIdSchema,
+            relation_kind: RelationKindSchema,
+            source_refs: z.array(z.string().min(1)).min(1),
+          })
+        )
+        .default([]),
     }),
     started_at: z.string().datetime(),
     finished_at: z.string().datetime(),
@@ -121,6 +141,114 @@ export const ApprovalSchema = z.object({
   decided_at: z.string().datetime(),
 });
 
+const DiscoveryBudgetSchema = z.object({
+  max_nodes: z.number().int().min(1),
+  max_sources: z.number().int().min(1),
+  max_hops: z.number().int().min(1),
+  max_characters: z.number().int().min(1),
+  used_nodes: z.number().int().min(0),
+  used_sources: z.number().int().min(0),
+  used_hops: z.number().int().min(0),
+  used_characters: z.number().int().min(0),
+});
+
+export const OrchestratorDiscoveryResponseSchema = z.object({
+  schema_version: z.literal("context.discovery.v1"),
+  status: z.enum(["completed", "not_required"]),
+  query: z.string().min(1),
+  current_node: TaskIdSchema,
+  registry_checksum: z.string().regex(/^[a-f0-9]{64}$/),
+  cross_domain_required: z.boolean(),
+  nodes_considered: z.array(
+    z.object({
+      node_id: TaskIdSchema,
+      score: z.number().nonnegative(),
+      relation_kind: RelationKindSchema,
+      reasons: z.array(z.string()),
+    })
+  ),
+  selected_sources: z.array(
+    z.object({
+      source_id: z.string().min(1),
+      node_id: TaskIdSchema,
+      kind: z.literal("repository-file"),
+      repository: z.string().url(),
+      ref: z.string().min(1),
+      path: z.string().min(1),
+      authority: z.enum(["canonical", "derived", "historical"]),
+      topics: z.array(z.string()),
+      relation_kind: RelationKindSchema,
+      match_reasons: z.array(z.string()),
+    })
+  ),
+  not_required_reason: z.string().min(1).optional(),
+  budget: DiscoveryBudgetSchema,
+});
+
+export const DiscoveryEvidenceSchema = z.object({
+  schema_version: z.literal("context.discovery.evidence.v1"),
+  discovery_status: z.enum(["completed", "not_required", "unavailable", "blocked"]),
+  required: z.boolean(),
+  current_node: TaskIdSchema,
+  registry_checksum: z.string().regex(/^[a-f0-9]{64}$/).nullable(),
+  nodes_considered: z.array(
+    z.object({
+      node_id: TaskIdSchema,
+      score: z.number().nonnegative(),
+      relation_kind: RelationKindSchema,
+      reasons: z.array(z.string()),
+    })
+  ),
+  sources_selected: z.array(
+    z.object({
+      source_id: z.string().min(1),
+      node_id: TaskIdSchema,
+      kind: z.literal("repository-file"),
+      repository: z.string().url(),
+      ref: z.string().min(1),
+      path: z.string().min(1),
+      authority: z.enum(["canonical", "derived", "historical"]),
+      topics: z.array(z.string()),
+      relation_kind: RelationKindSchema,
+      match_reasons: z.array(z.string()),
+    })
+  ),
+  sources_retrieved: z.array(
+    z.object({
+      source_id: z.string().min(1),
+      node_id: TaskIdSchema,
+      checksum_sha256: z.string().regex(/^[a-f0-9]{64}$/),
+      characters: z.number().int().positive(),
+      relation_kind: RelationKindSchema,
+    })
+  ),
+  not_required_reason: z.string().min(1).nullable(),
+  unavailable_reason: z.string().min(1).nullable(),
+  budget: DiscoveryBudgetSchema,
+  discovered_at: z.string().datetime(),
+});
+
+export const TaskContextSchema = z.object({
+  schema_version: z.literal("context.task.v1"),
+  current_node: TaskIdSchema,
+  registry_checksum: z.string().regex(/^[a-f0-9]{64}$/).nullable(),
+  sources: z.array(
+    z.object({
+      source_id: z.string().min(1),
+      node_id: TaskIdSchema,
+      relation_kind: RelationKindSchema,
+      authority: z.enum(["canonical", "derived", "historical"]),
+      repository: z.string().url(),
+      ref: z.string().min(1),
+      path: z.string().min(1),
+      checksum_sha256: z.string().regex(/^[a-f0-9]{64}$/),
+      characters: z.number().int().positive(),
+      content: z.string().min(1),
+    })
+  ),
+  created_at: z.string().datetime(),
+});
+
 export function stableChecksum(value) {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
@@ -128,6 +256,7 @@ export function stableChecksum(value) {
 export function prepareWeekIntent(raw, now = () => new Date()) {
   const parsed = RawWeekIntentSchema.parse(raw);
   const checksumPayload = {
+    current_node: parsed.current_node,
     intention: parsed.intention,
     acceptance_criteria: parsed.acceptance_criteria,
     constraints: parsed.constraints,

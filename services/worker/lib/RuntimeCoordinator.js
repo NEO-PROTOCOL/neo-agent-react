@@ -1,7 +1,12 @@
 import { Queue, Worker } from "bullmq";
 import IORedis from "ioredis";
 import { NeoWorker } from "../../../packages/engine/worker.js";
-import { NeoContextGateway, loadRuntimeDocuments } from "../../../packages/engine/pilot/adapters.js";
+import {
+  NeoContextGateway,
+  OrchestratorDiscoveryGateway,
+  SelectiveContextRetriever,
+  loadRuntimeDocuments,
+} from "../../../packages/engine/pilot/adapters.js";
 import { prepareWeekIntent } from "../../../packages/engine/pilot/contracts.js";
 import { PilotLoop } from "../../../packages/engine/pilot/PilotLoop.js";
 import { createPilotRoles } from "../../../packages/engine/pilot/roles.js";
@@ -66,6 +71,8 @@ export class RuntimeCoordinator {
       persistNodeResults: false,
       logger: this.logger,
     });
+    this.discoveryGateway = new OrchestratorDiscoveryGateway();
+    this.contextRetriever = new SelectiveContextRetriever();
     this.loop = new PilotLoop({
       worker: this.neoWorker,
       roles: createPilotRoles({
@@ -74,6 +81,8 @@ export class RuntimeCoordinator {
         documents: doctrine.documents,
       }),
       memoryGateway: new NeoContextGateway(),
+      discoveryGateway: this.discoveryGateway,
+      contextRetriever: this.contextRetriever,
       now: this.now,
     });
     try {
@@ -174,10 +183,17 @@ export class RuntimeCoordinator {
       this.runQueueConnection.ping(),
     ]);
     return {
-      ok: postgres.status === "fulfilled" && redis.status === "fulfilled" && this.llmReady,
+      ok:
+        postgres.status === "fulfilled" &&
+        redis.status === "fulfilled" &&
+        this.llmReady &&
+        this.discoveryGateway.isConfigured() &&
+        this.contextRetriever.isConfigured(),
       postgres: postgres.status === "fulfilled" ? "ok" : "unavailable",
       redis: redis.status === "fulfilled" ? "ok" : "unavailable",
       llm: this.llmReady ? "configured" : "unavailable",
+      context_discovery: this.discoveryGateway.isConfigured() ? "configured" : "unavailable",
+      context_sources: this.contextRetriever.isConfigured() ? "configured" : "unavailable",
       notion: this.notion.isConfigured() ? "configured" : "disabled",
       providers: Object.fromEntries(
         ["resend", "telegram", "ifttt"].map((channel) => [

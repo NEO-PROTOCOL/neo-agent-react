@@ -15,6 +15,7 @@ const taskOutputSchema = {
   properties: {
     schema_version: { type: "string", enum: ["pilot.v1"] },
     task_id: { type: "string" },
+    current_node: { type: "string" },
     objective: { type: "string" },
     acceptance_criteria: { type: "array", items: { type: "string" } },
     source: sourceSchema,
@@ -33,6 +34,7 @@ const taskOutputSchema = {
   required: [
     "schema_version",
     "task_id",
+    "current_node",
     "objective",
     "acceptance_criteria",
     "source",
@@ -88,8 +90,31 @@ const executionOutputSchema = {
           type: "object",
           properties: {
             markdown: { type: "string" },
+            claims: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  statement: { type: "string" },
+                  node_id: { type: "string" },
+                  relation_kind: {
+                    type: "string",
+                    enum: [
+                      "runtime",
+                      "infrastructure",
+                      "capability",
+                      "knowledge",
+                      "architectural_influence",
+                      "knowledge_candidate",
+                    ],
+                  },
+                  source_refs: { type: "array", items: { type: "string" } },
+                },
+                required: ["statement", "node_id", "relation_kind", "source_refs"],
+              },
+            },
           },
-          required: ["markdown"],
+          required: ["markdown", "claims"],
         },
         started_at: { type: "string" },
         finished_at: { type: "string" },
@@ -193,16 +218,16 @@ export function createPilotRoles({ providerId, model, documents = [] }) {
     operator: baseAgent({
       id: "operator",
       role: "Operator do piloto semanal",
-      mission: "Normalizar a intencao semanal recebida em um Task pilot.v1 verificavel e estritamente local.",
+      mission: "Normalizar a intencao semanal recebida em um Task pilot.v1 verificavel, com efeitos estritamente locais.",
       constraints: [
-        "Preservar task_id e source exatamente como recebidos.",
+        "Preservar task_id, current_node e source exatamente como recebidos.",
         "Nao ampliar objetivo, criterios ou escopo.",
         "Permitir apenas effects none e local_state neste piloto.",
         "Marcar production, git, filesystem, network, secrets, growth, tiktok, nox e flowpay como forbidden_targets.",
         "Definir max_attempts como 2.",
         "Nao executar a tarefa; apenas normalizar Task.",
       ],
-      requiredContextKeys: ["intent", "memory"],
+      requiredContextKeys: ["intent", "discovery", "task_context", "memory"],
       outputSchema: taskOutputSchema,
       provider,
     }),
@@ -216,7 +241,7 @@ export function createPilotRoles({ providerId, model, documents = [] }) {
         "Declarar evidencia esperada por passo.",
         "Nao executar nenhuma acao.",
       ],
-      requiredContextKeys: ["task", "memory"],
+      requiredContextKeys: ["task", "discovery", "task_context", "memory"],
       outputSchema: planOutputSchema,
       provider,
     }),
@@ -229,14 +254,16 @@ export function createPilotRoles({ providerId, model, documents = [] }) {
           "Nao chamar tools, rede, filesystem, Git ou producao.",
           "Produzir somente output estruturado e evidencia observavel.",
           "Registrar o artefato em action.output.markdown.",
+          "Declarar toda afirmacao cross-node em action.output.claims com node_id, relation_kind e source_refs.",
+          "Conhecimento recuperado ou influencia arquitetural nunca prova integracao, runtime, infraestrutura ou capability habilitada.",
           "Copiar o markdown produzido exatamente em evidence.checks[].observed.",
           "Nao afirmar sucesso quando um criterio nao foi observado.",
           "Usar attempt igual ao numero da tentativa atual.",
         ],
         requiredContextKeys:
           attempt === 1
-            ? ["task", "plan"]
-            : ["task", "plan", "execution_1", "review_1"],
+            ? ["task", "plan", "discovery", "task_context"]
+            : ["task", "plan", "discovery", "task_context", "execution_1", "review_1"],
         outputSchema: executionOutputSchema,
         provider,
       });
@@ -251,9 +278,17 @@ export function createPilotRoles({ providerId, model, documents = [] }) {
           "Usar REVISE para defeito corrigivel dentro do mesmo escopo.",
           "Usar BLOCK para risco, ampliacao de escopo ou evidencia nao confiavel.",
           "Findings devem ser concretos, acionaveis e referenciar evidence_id.",
+          "Distinguir conhecimento recuperado, integracao existente, runtime, infraestrutura, capability e influencia arquitetural.",
+          "Usar BLOCK quando uma claim elevar knowledge ou knowledge_candidate a integracao, runtime, infraestrutura ou capability sem relacao comprovada.",
           "Nao corrigir nem executar a tarefa.",
         ],
-        requiredContextKeys: ["task", "plan", `execution_${attempt}`],
+        requiredContextKeys: [
+          "task",
+          "plan",
+          "discovery",
+          "task_context",
+          `execution_${attempt}`,
+        ],
         outputSchema: reviewOutputSchema,
         provider,
       });

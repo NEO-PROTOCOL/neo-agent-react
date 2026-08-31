@@ -39,6 +39,8 @@ Runtime obrigatório:
 - `REDIS_URL`
 - `RUNTIME_API_KEY`
 - `GEMINI_API_KEY`
+- `NEO_ORCHESTRATOR_URL`
+- `CONTEXT_SOURCE_GITHUB_TOKEN` (read-only; necessário para fontes privadas)
 
 Notion:
 
@@ -89,6 +91,8 @@ mise exec -- pnpm db:migrate
 - escolher explicitamente o PostgreSQL Railway e validar isolamento do schema;
 - criar Redis dedicado ao runtime;
 - configurar `RUNTIME_API_KEY` sem expor seu valor;
+- validar `NEO_ORCHESTRATOR_URL` contra o endpoint `/api/discovery/context`;
+- configurar `CONTEXT_SOURCE_GITHUB_TOKEN` com acesso read-only somente às fontes privadas selecionadas;
 - compartilhar a data source do Notion com a integração e definir seu ID;
 - validar conectividade autenticada com Resend e Telegram;
 - configurar o evento IFTTT somente se o canal for ativado;

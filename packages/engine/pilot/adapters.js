@@ -2,6 +2,171 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
+const DEFAULT_DISCOVERY_BUDGET = Object.freeze({
+  max_sources: 4,
+  max_hops: 1,
+  max_characters: 12_000,
+});
+
+export class DiscoveryUnavailableError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "DiscoveryUnavailableError";
+  }
+}
+
+export class ContextBudgetError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "ContextBudgetError";
+    this.code = "CONTEXT_BUDGET_EXCEEDED";
+  }
+}
+
+function safeRepositoryFileUrl(source) {
+  const repository = new URL(source.repository);
+  if (repository.protocol !== "https:" || repository.hostname !== "github.com") {
+    throw new Error("Context source repository must use https://github.com");
+  }
+  const parts = repository.pathname.replace(/\.git$/, "").split("/").filter(Boolean);
+  if (parts.length !== 2) throw new Error("Context source repository is invalid");
+  if (!source.ref || source.ref.includes("..") || source.ref.includes("/")) {
+    throw new Error("Context source ref is invalid");
+  }
+  const pathParts = source.path.split("/").filter(Boolean);
+  const forbiddenSegment = pathParts.some((segment) =>
+    /^(?:\.git|\.env(?:\.|$)|secrets?|credentials?)$/i.test(segment)
+  );
+  if (
+    !pathParts.length ||
+    pathParts.includes("..") ||
+    forbiddenSegment ||
+    !/\.(?:json|md)$/i.test(pathParts.at(-1))
+  ) {
+    throw new Error("Context source path is not allowed");
+  }
+  const repositoryPath = parts.map(encodeURIComponent).join("/");
+  const contentPath = pathParts.map(encodeURIComponent).join("/");
+  return `https://api.github.com/repos/${repositoryPath}/contents/${contentPath}?ref=${encodeURIComponent(source.ref)}`;
+}
+
+export class OrchestratorDiscoveryGateway {
+  constructor({
+    baseUrl = process.env.NEO_ORCHESTRATOR_URL,
+    timeoutMs = 3_000,
+    fetchImpl = globalThis.fetch,
+  } = {}) {
+    this.baseUrl = baseUrl?.replace(/\/$/, "");
+    this.timeoutMs = timeoutMs;
+    this.fetchImpl = fetchImpl;
+  }
+
+  isConfigured() {
+    return Boolean(this.baseUrl && typeof this.fetchImpl === "function");
+  }
+
+  async discover({ query, currentNode, maxNodes = 3, budget = DEFAULT_DISCOVERY_BUDGET }) {
+    if (!this.baseUrl) throw new DiscoveryUnavailableError("orchestrator_not_configured");
+    if (typeof this.fetchImpl !== "function") {
+      throw new DiscoveryUnavailableError("fetch_unavailable");
+    }
+    let response;
+    try {
+      response = await this.fetchImpl(`${this.baseUrl}/api/discovery/context`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          query,
+          current_node: currentNode,
+          max_nodes: maxNodes,
+          budget,
+        }),
+        signal: AbortSignal.timeout(this.timeoutMs),
+      });
+    } catch {
+      throw new DiscoveryUnavailableError("orchestrator_unavailable");
+    }
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      if (body.error === "CONTEXT_BUDGET_EXCEEDED") {
+        throw new ContextBudgetError("Orchestrator rejected context budget");
+      }
+      if (response.status >= 500) {
+        throw new DiscoveryUnavailableError("registry_unavailable");
+      }
+      throw new Error(`Context discovery HTTP ${response.status}: ${body.error || "invalid_request"}`);
+    }
+    return response.json();
+  }
+}
+
+export class SelectiveContextRetriever {
+  constructor({
+    token = process.env.CONTEXT_SOURCE_GITHUB_TOKEN,
+    timeoutMs = 5_000,
+    fetchImpl = globalThis.fetch,
+  } = {}) {
+    this.token = token;
+    this.timeoutMs = timeoutMs;
+    this.fetchImpl = fetchImpl;
+  }
+
+  isConfigured() {
+    return Boolean(this.token && typeof this.fetchImpl === "function");
+  }
+
+  async retrieve({ sources, budget = DEFAULT_DISCOVERY_BUDGET }) {
+    if (sources.length > budget.max_sources) {
+      throw new ContextBudgetError("Selected sources exceed max_sources");
+    }
+    if (typeof this.fetchImpl !== "function") {
+      throw new DiscoveryUnavailableError("fetch_unavailable");
+    }
+    const entries = [];
+    let usedCharacters = 0;
+    for (const source of sources) {
+      let response;
+      try {
+        const headers = {
+          accept: "application/vnd.github.raw+json",
+          "user-agent": "neo-agent-react-context-retriever",
+        };
+        if (this.token) headers.authorization = `Bearer ${this.token}`;
+        response = await this.fetchImpl(safeRepositoryFileUrl(source), {
+          headers,
+          signal: AbortSignal.timeout(this.timeoutMs),
+        });
+      } catch {
+        throw new DiscoveryUnavailableError(`source_unavailable:${source.source_id}`);
+      }
+      if (!response.ok) {
+        throw new DiscoveryUnavailableError(`source_unavailable:${source.source_id}`);
+      }
+      const content = await response.text();
+      if (!content.trim()) {
+        throw new DiscoveryUnavailableError(`source_empty:${source.source_id}`);
+      }
+      usedCharacters += content.length;
+      if (usedCharacters > budget.max_characters) {
+        throw new ContextBudgetError("Retrieved context exceeds max_characters");
+      }
+      entries.push({
+        source_id: source.source_id,
+        node_id: source.node_id,
+        relation_kind: source.relation_kind,
+        authority: source.authority,
+        repository: source.repository,
+        ref: source.ref,
+        path: source.path,
+        checksum_sha256: createHash("sha256").update(content).digest("hex"),
+        characters: content.length,
+        content,
+      });
+    }
+    return { entries, usedCharacters };
+  }
+}
+
 const RUNTIME_DOCUMENTS = [
   "gates/architecture-gate.md",
   "gates/destructive-gate.md",

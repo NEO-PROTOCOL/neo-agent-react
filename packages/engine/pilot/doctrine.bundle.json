@@ -1,7 +1,7 @@
 {
   "schema_version": "doctrine.bundle.v1",
   "source": "neo-agent-runtime",
-  "version": "d88a43b033bc6a9b0742fb0a90686c28fbc7da473c7a78d7f4b1042fbc69d43c",
+  "version": "68c4d46b6fc44743f88eaeadd744fe0108e34798802d7995e005cc6ad7d613c7",
   "documents": [
     {
       "name": "gates/architecture-gate.md",
@@ -17,7 +17,7 @@
     },
     {
       "name": "policies/execution-doctrine.md",
-      "content": "# Execution Doctrine\n\n- Execute with autonomy inside the granted scope.\n- Use logical reversible defaults; escalate only genuine forks.\n- Challenge flawed premises before implementing them.\n- Preserve system integrity over task completion speed.\n- Avoid unnecessary interruption; batch questions if they must exist.\n- Respect explicit authorization boundaries: publish, destroy, spend.\n"
+      "content": "# Execution Doctrine\n\n- Execute with autonomy inside the granted scope.\n- Use logical reversible defaults; escalate only genuine forks.\n- Challenge flawed premises before implementing them.\n- Preserve system integrity over task completion speed.\n- Avoid unnecessary interruption; batch questions if they must exist.\n- Respect explicit authorization boundaries: publish, destroy, spend.\n- Before concluding from local context alone, assess whether the request may depend on knowledge, capability, state, or a decision owned by another ecosystem node.\n- When cross-node dependence is reasonably possible, run canonical context discovery and retrieve only the selected sources within the declared budget.\n- Treat discovery failure as `unavailable`, never as proof that information does not exist.\n- Retrieved knowledge or architectural influence does not prove an integration, runtime dependency, infrastructure dependency, or enabled capability.\n"
     },
     {
       "name": "policies/scope-control.md",

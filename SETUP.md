@@ -42,6 +42,10 @@ GEMINI_API_KEY=sua_chave_aqui
 PILOT_PROVIDER=gemini
 PILOT_MODEL=gemini-3.5-flash-lite
 NEO_AGENT_RUNTIME_ROOT=/Users/nettomello/neomello/neo-agent-runtime/neo-agent-runtime
+
+# Discovery cross-node antes do Operator
+NEO_ORCHESTRATOR_URL=http://localhost:8080
+CONTEXT_SOURCE_GITHUB_TOKEN=
 ```
 
 > [!WARNING]
@@ -109,6 +113,11 @@ NEO_AGENT_RUNTIME_ROOT=/Users/nettomello/neomello/neo-agent-runtime/neo-agent-ru
 A interface estará acessível em `http://localhost:3000` e o Worker em `http://localhost:4001`.
 
 ### Execução do Piloto Semanal Local
+
+O worker consulta `NEO_ORCHESTRATOR_URL` antes do Operator, recupera somente
+as fontes selecionadas e persiste `discovery` e `task_context` no state store.
+Sem Orchestrator disponível, uma tarefa que dependa de contexto cross-node é
+encaminhada pelo Guardian como `NEEDS_HUMAN`.
 
 Para rodar o ciclo autônomo de agentes (`Operator -> Planner -> Executor -> Reviewer -> Guardian`):
 

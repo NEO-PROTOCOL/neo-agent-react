@@ -76,6 +76,48 @@ class MemoryGatewayStub {
   }
 }
 
+class LocalDiscoveryGatewayStub {
+  constructor() {
+    this.calls = 0;
+  }
+
+  async discover({ query, currentNode, maxNodes, budget }) {
+    this.calls += 1;
+    return {
+      schema_version: "context.discovery.v1",
+      status: "not_required",
+      query,
+      current_node: currentNode,
+      registry_checksum: "1".repeat(64),
+      cross_domain_required: false,
+      nodes_considered: [
+        { node_id: currentNode, score: 100, relation_kind: "knowledge", reasons: ["current_node"] },
+      ],
+      selected_sources: [],
+      not_required_reason: "no_cross_node_match",
+      budget: {
+        max_nodes: maxNodes,
+        ...budget,
+        used_nodes: 1,
+        used_sources: 0,
+        used_hops: 0,
+        used_characters: 0,
+      },
+    };
+  }
+}
+
+class EmptyContextRetrieverStub {
+  constructor() {
+    this.calls = 0;
+  }
+
+  async retrieve() {
+    this.calls += 1;
+    return { entries: [], usedCharacters: 0 };
+  }
+}
+
 function rawIntent(taskId) {
   return {
     task_id: taskId,
@@ -94,6 +136,7 @@ function task(intent, risk = "low") {
   return {
     schema_version: "pilot.v1",
     task_id: intent.task_id,
+    current_node: intent.current_node,
     objective: "Gerar checklist semanal local.",
     acceptance_criteria: intent.acceptance_criteria,
     source: intent.source,
@@ -148,6 +191,7 @@ function execution(taskId, attempt, passed) {
       status: "completed",
       output: {
         markdown,
+        claims: [],
       },
       started_at: NOW,
       finished_at: NOW,
@@ -187,14 +231,18 @@ function harness(responses, options = {}) {
   const registry = new ProviderRegistry([adapter]);
   const worker = new MemoryWorker(new AgentRunner({ providerRegistry: registry }));
   const memoryGateway = new MemoryGatewayStub();
+  const discoveryGateway = options.discoveryGateway || new LocalDiscoveryGatewayStub();
+  const contextRetriever = options.contextRetriever || new EmptyContextRetrieverStub();
   const roles = createPilotRoles({ providerId: "test", documents: [] });
   const loop = new PilotLoop({
     worker,
     roles,
     memoryGateway,
+    discoveryGateway,
+    contextRetriever,
     now: () => new Date(NOW),
   });
-  return { adapter, worker, memoryGateway, loop };
+  return { adapter, worker, memoryGateway, discoveryGateway, contextRetriever, loop };
 }
 
 test("Operator normaliza Task e Guardian permite somente um retry antes de aprovar", async () => {
@@ -214,7 +262,7 @@ test("Operator normaliza Task e Guardian permite somente um retry antes de aprov
 
   assert.equal(result.ok, true);
   assert.equal(result.status, "APPROVED");
-  assert.deepEqual(result.artifact, { markdown: "- [ ] revisar backlog" });
+  assert.deepEqual(result.artifact, { markdown: "- [ ] revisar backlog", claims: [] });
   assert.equal(state.guardian_1.decision, "RETRY");
   assert.equal(state.approval.decision, "APPROVED");
   assert.equal(state.runtime.attempt, 2);
@@ -307,6 +355,38 @@ test("retomada pos-restart reutiliza checkpoints sem criar tentativa adicional",
     updated_at: NOW,
   });
   await worker.setContextField(intent.task_id, "memory", { status: "ok", hits: [] });
+  await worker.setContextField(intent.task_id, "discovery", {
+    schema_version: "context.discovery.evidence.v1",
+    discovery_status: "not_required",
+    required: false,
+    current_node: intent.current_node,
+    registry_checksum: "1".repeat(64),
+    nodes_considered: [
+      { node_id: intent.current_node, score: 100, relation_kind: "knowledge", reasons: ["current_node"] },
+    ],
+    sources_selected: [],
+    sources_retrieved: [],
+    not_required_reason: "no_cross_node_match",
+    unavailable_reason: null,
+    budget: {
+      max_nodes: 3,
+      max_sources: 4,
+      max_hops: 1,
+      max_characters: 12000,
+      used_nodes: 1,
+      used_sources: 0,
+      used_hops: 0,
+      used_characters: 0,
+    },
+    discovered_at: NOW,
+  });
+  await worker.setContextField(intent.task_id, "task_context", {
+    schema_version: "context.task.v1",
+    current_node: intent.current_node,
+    registry_checksum: "1".repeat(64),
+    sources: [],
+    created_at: NOW,
+  });
   await worker.setContextField(intent.task_id, "task", task(intent));
   await worker.setContextField(intent.task_id, "plan", plan(intent.task_id));
   await worker.setContextField(intent.task_id, "execution_1", execution(intent.task_id, 1, false));

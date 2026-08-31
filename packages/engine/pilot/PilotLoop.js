@@ -1,12 +1,22 @@
 import {
   ApprovalSchema,
+  DiscoveryEvidenceSchema,
   ExecutionSchema,
+  OrchestratorDiscoveryResponseSchema,
   PlanSchema,
   ReviewSchema,
   TaskSchema,
+  TaskContextSchema,
   WeekIntentSchema,
   stableChecksum,
 } from "./contracts.js";
+
+const DEFAULT_DISCOVERY_BUDGET = Object.freeze({
+  max_nodes: 3,
+  max_sources: 4,
+  max_hops: 1,
+  max_characters: 12_000,
+});
 
 const PILOT_EFFECTS = new Set(["none", "local_state"]);
 const REQUIRED_FORBIDDEN_TARGETS = [
@@ -42,6 +52,9 @@ function assertTaskBoundary(task, intent) {
   if (task.task_id !== intent.task_id) {
     throw new PilotError("OPERATOR_SCOPE_DRIFT", "Operator alterou task_id");
   }
+  if (task.current_node !== intent.current_node) {
+    throw new PilotError("OPERATOR_SCOPE_DRIFT", "Operator alterou current_node");
+  }
   if (
     task.source.type !== intent.source.type ||
     task.source.ref !== intent.source.ref ||
@@ -67,6 +80,60 @@ function assertTaskBoundary(task, intent) {
   }
 }
 
+function assessDiscovery(discovery) {
+  if (
+    discovery.discovery_status === "not_required" &&
+    !discovery.not_required_reason
+  ) {
+    return "CONTEXT_NOT_REQUIRED_JUSTIFICATION_MISSING";
+  }
+  if (discovery.required && discovery.discovery_status !== "completed") {
+    if (discovery.discovery_status === "blocked") {
+      return discovery.unavailable_reason === "incomplete_discovery_checkpoint"
+        ? "CONTEXT_DISCOVERY_CHECKPOINT_INCOMPLETE"
+        : "CONTEXT_BUDGET_EXCEEDED";
+    }
+    return "CONTEXT_DISCOVERY_REQUIRED_UNAVAILABLE";
+  }
+  if (discovery.required && discovery.sources_selected.length === 0) {
+    return "CONTEXT_SOURCES_NOT_SELECTED";
+  }
+  if (
+    discovery.discovery_status === "completed" &&
+    discovery.sources_selected.length !== discovery.sources_retrieved.length
+  ) {
+    return "CONTEXT_RETRIEVAL_INCOMPLETE";
+  }
+  return null;
+}
+
+function assessContextClaims(execution, discovery) {
+  const nodeRelations = new Map(
+    discovery.nodes_considered.map((node) => [node.node_id, node.relation_kind])
+  );
+  const retrievedSources = new Map(
+    discovery.sources_retrieved.map((source) => [source.source_id, source])
+  );
+  for (const claim of execution.action.output.claims) {
+    const discoveredRelation = nodeRelations.get(claim.node_id);
+    if (!discoveredRelation) return "CONTEXT_CLAIM_UNDISCOVERED_NODE";
+    if (claim.source_refs.some((sourceRef) => !retrievedSources.has(sourceRef))) {
+      return "CONTEXT_CLAIM_SOURCE_NOT_RETRIEVED";
+    }
+    if (
+      claim.source_refs.some(
+        (sourceRef) => retrievedSources.get(sourceRef).node_id !== claim.node_id
+      )
+    ) {
+      return "CONTEXT_CLAIM_SOURCE_NODE_MISMATCH";
+    }
+    if (discoveredRelation !== claim.relation_kind) {
+      return "CONTEXT_RELATION_OVERCLAIM";
+    }
+  }
+  return null;
+}
+
 function assessPlan(task, plan) {
   if (plan.task_id !== task.task_id) return "PLAN_TASK_MISMATCH";
   if (task.risk !== "low") return "TASK_RISK_NOT_LOW";
@@ -80,7 +147,9 @@ function assessPlan(task, plan) {
   return null;
 }
 
-export function decideGuardian({ task, plan, execution, review, attempt }) {
+export function decideGuardian({ task, plan, execution, review, discovery, attempt }) {
+  const discoveryProblem = assessDiscovery(discovery);
+  if (discoveryProblem) return { decision: "NEEDS_HUMAN", rule: discoveryProblem };
   const planIssue = assessPlan(task, plan);
   if (planIssue) return { decision: "NEEDS_HUMAN", rule: planIssue };
   if (execution.action.status !== "completed") {
@@ -99,6 +168,10 @@ export function decideGuardian({ task, plan, execution, review, attempt }) {
   if (review.findings.length > 0) {
     return { decision: "NEEDS_HUMAN", rule: "PASS_WITH_FINDINGS" };
   }
+  const contextClaimIssue = assessContextClaims(execution, discovery);
+  if (contextClaimIssue) {
+    return { decision: "NEEDS_HUMAN", rule: contextClaimIssue };
+  }
 
   const checksByCriterion = new Map(
     execution.evidence.checks.map((check) => [check.criterion, check])
@@ -112,14 +185,31 @@ export function decideGuardian({ task, plan, execution, review, attempt }) {
       : { decision: "NEEDS_HUMAN", rule: "MISSING_OR_FAILED_CRITERIA_AFTER_RETRY" };
   }
 
-  return { decision: "APPROVED", rule: "LOW_RISK_LOCAL_EVIDENCE_PASS" };
+  return {
+    decision: "APPROVED",
+    rule:
+      discovery.discovery_status === "completed"
+        ? "LOW_RISK_CONTEXT_EVIDENCE_PASS"
+        : "LOW_RISK_LOCAL_EVIDENCE_PASS",
+  };
 }
 
 export class PilotLoop {
-  constructor({ worker, roles, memoryGateway, now = () => new Date() }) {
+  constructor({
+    worker,
+    roles,
+    memoryGateway,
+    discoveryGateway,
+    contextRetriever,
+    discoveryBudget = DEFAULT_DISCOVERY_BUDGET,
+    now = () => new Date(),
+  }) {
     this.worker = worker;
     this.roles = roles;
     this.memoryGateway = memoryGateway;
+    this.discoveryGateway = discoveryGateway;
+    this.contextRetriever = contextRetriever;
+    this.discoveryBudget = discoveryBudget;
     this.now = now;
   }
 
@@ -155,6 +245,20 @@ export class PilotLoop {
 
     let lastReviewRef = null;
     try {
+      await this.#status(intent.task_id, "DISCOVERING_CONTEXT", 0, "pending");
+      const preflight = await this.#preflight(intent, state);
+      state = await this.worker.getContext(intent.task_id);
+      const discoveryProblem = assessDiscovery(preflight.discovery);
+      if (discoveryProblem) {
+        return this.#finalize({
+          intent,
+          decision: "NEEDS_HUMAN",
+          rule: discoveryProblem,
+          reviewRef: null,
+          memoryKind: "failure",
+        });
+      }
+
       const memory =
         state.memory ||
         (await this.memoryGateway.recall({
@@ -243,7 +347,14 @@ export class PilotLoop {
 
         let guardianRecord = state[`guardian_${attempt}`];
         if (!guardianRecord) {
-          const guardian = decideGuardian({ task, plan, execution, review, attempt });
+          const guardian = decideGuardian({
+            task,
+            plan,
+            execution,
+            review,
+            discovery: preflight.discovery,
+            attempt,
+          });
           guardianRecord = this.#approval(
             intent.task_id,
             guardian.decision,
@@ -291,6 +402,126 @@ export class PilotLoop {
     }
   }
 
+  async #preflight(intent, state) {
+    if (state.discovery && state.task_context) {
+      return {
+        discovery: DiscoveryEvidenceSchema.parse(state.discovery),
+        taskContext: TaskContextSchema.parse(state.task_context),
+      };
+    }
+
+    if (state.discovery || state.task_context) {
+      const existingDiscovery = state.discovery
+        ? DiscoveryEvidenceSchema.parse(state.discovery)
+        : null;
+      const discovery = DiscoveryEvidenceSchema.parse({
+        schema_version: "context.discovery.evidence.v1",
+        discovery_status: "blocked",
+        required: true,
+        current_node: intent.current_node,
+        registry_checksum: existingDiscovery?.registry_checksum || null,
+        nodes_considered: existingDiscovery?.nodes_considered || [],
+        sources_selected: existingDiscovery?.sources_selected || [],
+        sources_retrieved: existingDiscovery?.sources_retrieved || [],
+        not_required_reason: null,
+        unavailable_reason: "incomplete_discovery_checkpoint",
+        budget: existingDiscovery?.budget || {
+          ...this.discoveryBudget,
+          used_nodes: 0,
+          used_sources: 0,
+          used_hops: 0,
+          used_characters: 0,
+        },
+        discovered_at: this.now().toISOString(),
+      });
+      const taskContext = TaskContextSchema.parse(
+        state.task_context || {
+          schema_version: "context.task.v1",
+          current_node: intent.current_node,
+          registry_checksum: discovery.registry_checksum,
+          sources: [],
+          created_at: this.now().toISOString(),
+        }
+      );
+      await this.#write(intent.task_id, "discovery", discovery);
+      if (!state.task_context) await this.#write(intent.task_id, "task_context", taskContext);
+      return { discovery, taskContext };
+    }
+
+    let rawDiscovery = null;
+    let retrieval = { entries: [], usedCharacters: 0 };
+    let status = "unavailable";
+    let unavailableReason = null;
+    try {
+      if (!this.discoveryGateway) throw new Error("discovery_gateway_not_configured");
+      const discoveryResponse = await this.discoveryGateway.discover({
+        query: intent.intention,
+        currentNode: intent.current_node,
+        maxNodes: this.discoveryBudget.max_nodes,
+        budget: {
+          max_sources: this.discoveryBudget.max_sources,
+          max_hops: this.discoveryBudget.max_hops,
+          max_characters: this.discoveryBudget.max_characters,
+        },
+      });
+      rawDiscovery = OrchestratorDiscoveryResponseSchema.parse(discoveryResponse);
+      status = rawDiscovery.status;
+      if (status === "completed") {
+        await this.#status(intent.task_id, "RETRIEVING_CONTEXT", 0, "pending");
+        if (!this.contextRetriever) throw new Error("context_retriever_not_configured");
+        retrieval = await this.contextRetriever.retrieve({
+          sources: rawDiscovery.selected_sources,
+          budget: rawDiscovery.budget,
+        });
+      }
+    } catch (error) {
+      status = error?.code === "CONTEXT_BUDGET_EXCEEDED" ? "blocked" : "unavailable";
+      unavailableReason =
+        error instanceof Error ? error.message.slice(0, 200) : "context_discovery_unavailable";
+    }
+
+    const budget = rawDiscovery?.budget || {
+      ...this.discoveryBudget,
+      used_nodes: 0,
+      used_sources: 0,
+      used_hops: 0,
+      used_characters: 0,
+    };
+    const discovery = DiscoveryEvidenceSchema.parse({
+      schema_version: "context.discovery.evidence.v1",
+      discovery_status: status,
+      required: rawDiscovery ? rawDiscovery.cross_domain_required : true,
+      current_node: intent.current_node,
+      registry_checksum: rawDiscovery?.registry_checksum || null,
+      nodes_considered: rawDiscovery?.nodes_considered || [],
+      sources_selected: rawDiscovery?.selected_sources || [],
+      sources_retrieved: retrieval.entries.map((entry) => ({
+        source_id: entry.source_id,
+        node_id: entry.node_id,
+        checksum_sha256: entry.checksum_sha256,
+        characters: entry.characters,
+        relation_kind: entry.relation_kind,
+      })),
+      not_required_reason: rawDiscovery?.not_required_reason || null,
+      unavailable_reason: unavailableReason,
+      budget: {
+        ...budget,
+        used_characters: retrieval.usedCharacters,
+      },
+      discovered_at: this.now().toISOString(),
+    });
+    const taskContext = TaskContextSchema.parse({
+      schema_version: "context.task.v1",
+      current_node: intent.current_node,
+      registry_checksum: discovery.registry_checksum,
+      sources: retrieval.entries,
+      created_at: this.now().toISOString(),
+    });
+    await this.#write(intent.task_id, "discovery", discovery);
+    await this.#write(intent.task_id, "task_context", taskContext);
+    return { discovery, taskContext };
+  }
+
   #assertExecutionBoundary(task, plan, execution, attempt) {
     if (execution.task_id !== task.task_id) {
       throw new PilotError("EXECUTION_TASK_MISMATCH", "Executor alterou task_id");
@@ -336,6 +567,7 @@ export class PilotLoop {
     const stored = WeekIntentSchema.parse(state.intent);
     if (
       stored.task_id !== intent.task_id ||
+      stored.current_node !== intent.current_node ||
       stored.source.checksum_sha256 !== intent.source.checksum_sha256
     ) {
       throw new PilotError("TASK_RESUME_MISMATCH", "Intent diverge do snapshot persistido");
@@ -386,6 +618,7 @@ export class PilotLoop {
       approval,
       artifact,
       memory_status: memory.status,
+      discovery_status: finalState.discovery?.discovery_status || "unavailable",
       ...(error ? { error } : {}),
     };
   }
@@ -403,17 +636,20 @@ export class PilotLoop {
       approval,
       artifact,
       memory_status: state.runtime?.memory_status || "unavailable",
+      discovery_status: state.discovery?.discovery_status || "unavailable",
       ...(error ? { error } : {}),
     };
   }
 
   async #status(taskId, status, attempt, memoryStatus) {
-    const current = (await this.worker.getContext(taskId)).runtime || {};
+    const context = await this.worker.getContext(taskId);
+    const current = context.runtime || {};
     await this.#write(taskId, "runtime", {
       ...current,
       status,
       attempt,
       memory_status: memoryStatus,
+      discovery_status: context.discovery?.discovery_status || current.discovery_status || "pending",
       updated_at: this.now().toISOString(),
     });
   }

@@ -41,6 +41,8 @@ neo-agent-react/
 
 ## ⨷ Execução Local
 
+Consulte o [SETUP.md](./SETUP.md) para detalhes completos de variáveis de ambiente, catálogo de scripts e modos de execução.
+
 ```bash
 make bootstrap
 make docker-up

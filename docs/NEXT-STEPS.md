@@ -18,5 +18,17 @@ Este documento registra os pontos de ação pendentes identificados na inicializ
 
 ## 3. Comitar Estado Base
 
-- [x] Confirmar se a mudança de `pnpm` para versão 11.7.0 no `package.json` será a versão definitiva. Se sim, comitar. Se não, retornar à versão `10.33.0`.
+- [x] Confirmar se a mudança de `pnpm` para versão 11.24+ no `package.json` será a versão definitiva. Se sim, comitar. Se não, retornar à versão `10.33.0`.
 - [x] Comitar as adições de documentação criadas (`CODEX.md`, `AGENTS.md`, `CLAUDE.md`, `SVG.md`, `MARKDOWN_STYLE_GUIDE.md`).
+
+## 4. Piloto Semanal & Notification Router
+
+- [x] Implementação do `PilotLoop` para execução semanal de tarefas com papéis de Operator, Planner, Executor, Reviewer e Guardian.
+- [x] Implementação do `NotificationRouter` para roteamento de alertas e notificações dos agentes.
+- [x] Testes unitários do loop do piloto (`pnpm test:pilot`).
+
+## 5. Evolução Modular de Packages
+
+- [x] Criação do `SETUP.md` canônico.
+- [ ] Modularização de `@neo/skills` com exportações de skills puras independentes de UI.
+- [ ] Modularização de `@neo/memory` com adaptadores de contexto e persistência (Redis / InMemory).

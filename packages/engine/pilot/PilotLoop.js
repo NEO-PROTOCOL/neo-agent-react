@@ -125,46 +125,69 @@ export class PilotLoop {
 
   async run(rawIntent, { doctrineVersion } = {}) {
     const intent = WeekIntentSchema.parse(rawIntent);
-    const existing = await this.worker.getContext(intent.task_id);
-    if (Object.keys(existing).length > 0) {
-      throw new PilotError(
-        "TASK_ALREADY_EXISTS",
-        `Task ${intent.task_id} ja possui estado no Redis`
-      );
+    let state = await this.worker.getContext(intent.task_id);
+    if (Object.keys(state).length === 0) {
+      if (typeof this.worker.claimTask === "function") {
+        const claimed = await this.worker.claimTask(intent);
+        if (!claimed) {
+          state = await this.worker.getContext(intent.task_id);
+          if (Object.keys(state).length === 0) {
+            throw new PilotError("TASK_CLAIM_CONFLICT", `Task ${intent.task_id} em disputa`);
+          }
+        }
+      }
+      if (Object.keys(state).length === 0) {
+        await this.#write(intent.task_id, "intent", intent);
+        await this.#write(intent.task_id, "runtime", {
+          status: "RECEIVED",
+          attempt: 0,
+          doctrine_version: doctrineVersion || null,
+          memory_status: "pending",
+          started_at: this.now().toISOString(),
+          updated_at: this.now().toISOString(),
+        });
+        state = await this.worker.getContext(intent.task_id);
+      }
+    } else {
+      this.#assertResumeBoundary(intent, state);
+      if (state.approval) return this.#resultFromState(intent.task_id, state);
     }
-
-    await this.#write(intent.task_id, "intent", intent);
-    await this.#write(intent.task_id, "runtime", {
-      status: "RECEIVED",
-      attempt: 0,
-      doctrine_version: doctrineVersion || null,
-      memory_status: "pending",
-      started_at: this.now().toISOString(),
-      updated_at: this.now().toISOString(),
-    });
 
     let lastReviewRef = null;
     try {
-      const memory = await this.memoryGateway.recall({
-        query: intent.intention,
-        topic: "neo-agent-react",
-      });
-      await this.#write(intent.task_id, "memory", memory);
+      const memory =
+        state.memory ||
+        (await this.memoryGateway.recall({
+          query: intent.intention,
+          topic: "neo-agent-react",
+        }));
+      if (!state.memory) await this.#write(intent.task_id, "memory", memory);
       await this.#status(intent.task_id, "OPERATING", 0, memory.status);
 
-      const operatorRaw = await this.worker.executeNode(intent.task_id, this.roles.operator);
-      assertRealProviderResult(operatorRaw, "Operator");
-      const task = TaskSchema.parse(operatorRaw);
-      assertTaskBoundary(task, intent);
-      task.created_at = this.now().toISOString();
-      await this.#write(intent.task_id, "task", task);
+      let task = state.task;
+      if (!task) {
+        const operatorRaw = await this.worker.executeNode(intent.task_id, this.roles.operator);
+        assertRealProviderResult(operatorRaw, "Operator");
+        task = TaskSchema.parse(operatorRaw);
+        assertTaskBoundary(task, intent);
+        task.created_at = this.now().toISOString();
+        await this.#write(intent.task_id, "task", task);
+      } else {
+        task = TaskSchema.parse(task);
+        assertTaskBoundary(task, intent);
+      }
       await this.#status(intent.task_id, "PLANNING", 0, memory.status);
 
-      const planRaw = await this.worker.executeNode(intent.task_id, this.roles.planner);
-      assertRealProviderResult(planRaw, "Planner");
-      const plan = PlanSchema.parse(planRaw);
-      plan.created_at = this.now().toISOString();
-      await this.#write(intent.task_id, "plan", plan);
+      let plan = state.plan;
+      if (!plan) {
+        const planRaw = await this.worker.executeNode(intent.task_id, this.roles.planner);
+        assertRealProviderResult(planRaw, "Planner");
+        plan = PlanSchema.parse(planRaw);
+        plan.created_at = this.now().toISOString();
+        await this.#write(intent.task_id, "plan", plan);
+      } else {
+        plan = PlanSchema.parse(plan);
+      }
 
       const planIssue = assessPlan(task, plan);
       if (planIssue) {
@@ -179,53 +202,70 @@ export class PilotLoop {
 
       for (let attempt = 1; attempt <= task.max_attempts; attempt += 1) {
         await this.#status(intent.task_id, "EXECUTING", attempt, memory.status);
-        const executionStartedAt = this.now().toISOString();
-        const executionRaw = await this.worker.executeNode(
-          intent.task_id,
-          this.roles.executor(attempt)
-        );
-        assertRealProviderResult(executionRaw, "Executor");
-        const execution = ExecutionSchema.parse(executionRaw);
-        this.#assertExecutionBoundary(task, plan, execution, attempt);
-        execution.action.input_checksum = stableChecksum({ task, plan, attempt });
-        execution.evidence.checksum_sha256 = stableChecksum(execution.action.output);
-        execution.action.started_at = executionStartedAt;
-        execution.action.finished_at = this.now().toISOString();
-        execution.evidence.observed_at = execution.action.finished_at;
-        await this.#write(intent.task_id, `execution_${attempt}`, execution);
+        let execution = state[`execution_${attempt}`];
+        if (!execution) {
+          const executionStartedAt = this.now().toISOString();
+          const executionRaw = await this.worker.executeNode(
+            intent.task_id,
+            this.roles.executor(attempt)
+          );
+          assertRealProviderResult(executionRaw, "Executor");
+          execution = ExecutionSchema.parse(executionRaw);
+          this.#assertExecutionBoundary(task, plan, execution, attempt);
+          execution.action.input_checksum = stableChecksum({ task, plan, attempt });
+          execution.evidence.checksum_sha256 = stableChecksum(execution.action.output);
+          execution.action.started_at = executionStartedAt;
+          execution.action.finished_at = this.now().toISOString();
+          execution.evidence.observed_at = execution.action.finished_at;
+          await this.#write(intent.task_id, `execution_${attempt}`, execution);
+        } else {
+          execution = ExecutionSchema.parse(execution);
+          this.#assertExecutionBoundary(task, plan, execution, attempt);
+        }
 
         await this.#status(intent.task_id, "REVIEWING", attempt, memory.status);
-        const reviewRaw = await this.worker.executeNode(
-          intent.task_id,
-          this.roles.reviewer(attempt)
-        );
-        assertRealProviderResult(reviewRaw, "Reviewer");
-        const review = ReviewSchema.parse(reviewRaw);
-        this.#assertReviewBoundary(task, execution, review);
-        review.reviewed_at = this.now().toISOString();
-        await this.#write(intent.task_id, `review_${attempt}`, review);
+        let review = state[`review_${attempt}`];
+        if (!review) {
+          const reviewRaw = await this.worker.executeNode(
+            intent.task_id,
+            this.roles.reviewer(attempt)
+          );
+          assertRealProviderResult(reviewRaw, "Reviewer");
+          review = ReviewSchema.parse(reviewRaw);
+          this.#assertReviewBoundary(task, execution, review);
+          review.reviewed_at = this.now().toISOString();
+          await this.#write(intent.task_id, `review_${attempt}`, review);
+        } else {
+          review = ReviewSchema.parse(review);
+          this.#assertReviewBoundary(task, execution, review);
+        }
         lastReviewRef = `review_${attempt}`;
 
-        const guardian = decideGuardian({ task, plan, execution, review, attempt });
-        const guardianRecord = this.#approval(
-          intent.task_id,
-          guardian.decision,
-          guardian.rule,
-          lastReviewRef
-        );
-        await this.#write(intent.task_id, `guardian_${attempt}`, guardianRecord);
+        let guardianRecord = state[`guardian_${attempt}`];
+        if (!guardianRecord) {
+          const guardian = decideGuardian({ task, plan, execution, review, attempt });
+          guardianRecord = this.#approval(
+            intent.task_id,
+            guardian.decision,
+            guardian.rule,
+            lastReviewRef
+          );
+          await this.#write(intent.task_id, `guardian_${attempt}`, guardianRecord);
+        } else {
+          guardianRecord = ApprovalSchema.parse(guardianRecord);
+        }
 
-        if (guardian.decision === "RETRY") {
+        if (guardianRecord.decision === "RETRY") {
           await this.#status(intent.task_id, "RETRY_PENDING", attempt, memory.status);
           continue;
         }
 
         return this.#finalize({
           intent,
-          decision: guardian.decision,
-          rule: guardian.rule,
+          decision: guardianRecord.decision,
+          rule: guardianRecord.authority_rule,
           reviewRef: lastReviewRef,
-          memoryKind: guardian.decision === "APPROVED" ? "decision" : "failure",
+          memoryKind: guardianRecord.decision === "APPROVED" ? "decision" : "failure",
         });
       }
 
@@ -289,6 +329,19 @@ export class PilotLoop {
     }
   }
 
+  #assertResumeBoundary(intent, state) {
+    if (!state.intent) {
+      throw new PilotError("TASK_STATE_INCOMPLETE", "Task persistida sem intent");
+    }
+    const stored = WeekIntentSchema.parse(state.intent);
+    if (
+      stored.task_id !== intent.task_id ||
+      stored.source.checksum_sha256 !== intent.source.checksum_sha256
+    ) {
+      throw new PilotError("TASK_RESUME_MISMATCH", "Intent diverge do snapshot persistido");
+    }
+  }
+
   #approval(taskId, decision, rule, reviewRef) {
     return ApprovalSchema.parse({
       schema_version: "pilot.v1",
@@ -302,6 +355,9 @@ export class PilotLoop {
   }
 
   async #finalize({ intent, decision, rule, reviewRef, memoryKind, error }) {
+    const current = await this.worker.getContext(intent.task_id);
+    if (current.approval) return this.#resultFromState(intent.task_id, current, error);
+
     const approval = this.#approval(intent.task_id, decision, rule, reviewRef);
     await this.#write(intent.task_id, "approval", approval);
 
@@ -330,6 +386,23 @@ export class PilotLoop {
       approval,
       artifact,
       memory_status: memory.status,
+      ...(error ? { error } : {}),
+    };
+  }
+
+  #resultFromState(taskId, state, error) {
+    const approval = ApprovalSchema.parse(state.approval);
+    const finalAttempt = approval.review_ref === "review_2" ? 2 : approval.review_ref ? 1 : 0;
+    const artifact = finalAttempt
+      ? state[`execution_${finalAttempt}`]?.action?.output || null
+      : null;
+    return {
+      ok: approval.decision === "APPROVED",
+      task_id: taskId,
+      status: approval.decision,
+      approval,
+      artifact,
+      memory_status: state.runtime?.memory_status || "unavailable",
       ...(error ? { error } : {}),
     };
   }

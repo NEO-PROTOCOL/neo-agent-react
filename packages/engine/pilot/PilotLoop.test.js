@@ -290,3 +290,42 @@ test("Fallback de provider nunca e tratado como execucao real", async () => {
   assert.equal(state.approval.authority_rule, "BLOCKED_CONFIGURATION");
   assert.equal(adapter.calls, 0);
 });
+
+test("retomada pos-restart reutiliza checkpoints sem criar tentativa adicional", async () => {
+  const intent = prepareWeekIntent(rawIntent("pilot-resume"), () => new Date(NOW));
+  const { adapter, worker, loop } = harness([
+    execution(intent.task_id, 2, true),
+    review(intent.task_id, 2, "PASS"),
+  ]);
+  await worker.setContextField(intent.task_id, "intent", intent);
+  await worker.setContextField(intent.task_id, "runtime", {
+    status: "RETRY_PENDING",
+    attempt: 1,
+    doctrine_version: "test-doctrine",
+    memory_status: "ok",
+    started_at: NOW,
+    updated_at: NOW,
+  });
+  await worker.setContextField(intent.task_id, "memory", { status: "ok", hits: [] });
+  await worker.setContextField(intent.task_id, "task", task(intent));
+  await worker.setContextField(intent.task_id, "plan", plan(intent.task_id));
+  await worker.setContextField(intent.task_id, "execution_1", execution(intent.task_id, 1, false));
+  await worker.setContextField(intent.task_id, "review_1", review(intent.task_id, 1, "REVISE"));
+  await worker.setContextField(intent.task_id, "guardian_1", {
+    schema_version: "pilot.v1",
+    task_id: intent.task_id,
+    decision: "RETRY",
+    decided_by: "guardian",
+    authority_rule: "REVIEW_REVISE_RETRY_ONCE",
+    review_ref: "review_1",
+    decided_at: NOW,
+  });
+
+  const result = await loop.run(intent, { doctrineVersion: "test-doctrine" });
+  const state = await worker.getContext(intent.task_id);
+
+  assert.equal(result.status, "APPROVED");
+  assert.equal(state.runtime.attempt, 2);
+  assert.equal(state.execution_3, undefined);
+  assert.equal(adapter.calls, 2);
+});

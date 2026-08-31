@@ -8,12 +8,15 @@ import { SkillRegistry } from "./SkillRegistry.js";
 const PROTO_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 
 export class NeoWorker {
-  constructor() {
+  constructor({ stateStore = null, logger = console, persistNodeResults = true } = {}) {
     // Instance-level clients — never shared across instances.
     // Using a stored Promise prevents concurrent connect() calls (TOCTOU fix).
     this._redis = createClient({ url: process.env.REDIS_URL });
     this._publisher = this._redis.duplicate();
     this._connectPromise = null;
+    this.stateStore = stateStore;
+    this.logger = logger;
+    this.persistNodeResults = persistNodeResults;
 
     this.runner = new AgentRunner();
     this.stateReducer = new StateReducer();
@@ -34,10 +37,12 @@ export class NeoWorker {
     await this._ensureConnected();
     const payload = JSON.stringify({ flowId, nodeId, status, data });
     await this._publisher.publish(`flow_updates:${flowId}`, payload);
-    console.log(`[NEO_BUS] ${nodeId} -> ${status}`);
+    const record = { event: "agent_node_status", flow_id: flowId, node_id: nodeId, status };
+    if (typeof this.logger.info === "function") this.logger.info(record);
   }
 
   async getContext(flowId) {
+    if (this.stateStore) return this.stateStore.getContext(flowId);
     await this._ensureConnected();
     const contextRaw = await this._redis.hGetAll(`context:${flowId}`);
     return Object.fromEntries(
@@ -52,8 +57,17 @@ export class NeoWorker {
   }
 
   async setContextField(flowId, key, value) {
+    if (this.stateStore) return this.stateStore.setContextField(flowId, key, value);
     await this._ensureConnected();
     await this._redis.hSet(`context:${flowId}`, key, JSON.stringify(value));
+  }
+
+  async claimTask(intent) {
+    if (this.stateStore?.claimTask) return this.stateStore.claimTask(intent);
+    await this._ensureConnected();
+    return this._redis.set(`task_claim:${intent.task_id}`, intent.source.checksum_sha256, {
+      NX: true,
+    });
   }
 
   async executeNode(flowId, nodeConfig) {
@@ -101,7 +115,7 @@ export class NeoWorker {
         },
       });
 
-      await this.setContextField(flowId, nodeId, result);
+      if (this.persistNodeResults) await this.setContextField(flowId, nodeId, result);
       await this.broadcastStatus(flowId, nodeId, "success", result);
       return result;
     } catch (error) {

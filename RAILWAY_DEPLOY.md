@@ -1,94 +1,96 @@
 # Railway Deploy
-<!-- markdownlint-disable MD003 MD007 MD013 MD022 MD023 MD025 MD029 MD032 MD033 MD034 -->
 
 ```text
-========================================
-      RAILWAY DEPLOY · NEO-AGENT-REACT
-========================================
-Status: ACTIVE
-Mode: MULTI-SERVICE
-========================================
+Status: PREPARED / NOT DEPLOYED
+Mode: PERSISTENT AGENT RUNTIME
 ```
 
-## ⟠ Objetivo
+## Escopo
 
-Documentar deploy em Railway
-com serviços isolados:
+O primeiro runtime persistente usa um serviço de aplicação:
 
-- `canvas-ui` (Next.js)
-- `worker` (Fastify + engine)
-- `redis` (gerenciado)
+- `neo-agent-react-runtime`: API autenticada, workers BullMQ e schedulers;
+- PostgreSQL: source of truth, no schema isolado `agent_runtime`;
+- Redis dedicado: transporte BullMQ e locks operacionais;
+- Notion: fonte humana read-only para a intenção semanal;
+- Resend, Telegram e IFTTT: transportes assíncronos via outbox.
 
-────────────────────────────────────────
+O serviço deve usar a raiz deste repositório como Root Directory, porque
+`services/worker` depende de `packages/engine` via `workspace:*`.
 
-## ⨷ Contrato de Isolamento
+## Configuração do serviço
 
-- Não compartilhar arquivos entre serviços.
-- Comunicação apenas por rede:
-  - Redis (`REDIS_URL`)
-  - HTTP (`WORKER_BASE_URL`)
-- Cada serviço escala e reinicia de forma independente.
+O arquivo `railway.json` define:
 
-────────────────────────────────────────
+- build com Railpack e instalação congelada;
+- migration PostgreSQL no pre-deploy;
+- início com `pnpm start:worker-api`;
+- readiness em `/ready`;
+- restart `ON_FAILURE` e uma réplica inicial.
 
-## ⧉ Estratégia de Build (Importante)
+Não existe deploy autorizado por este documento. A criação ou alteração de
+serviços Railway depende de aprovação operacional.
 
-`services/worker` depende de `packages/engine`
-via `workspace:*`.
+## Variáveis
 
-Por isso, no Railway:
+Runtime obrigatório:
 
-- **não** usar `Root Directory=services/worker`
-  para o serviço worker,
-- **usar root do repositório**
-  em ambos os serviços,
-- e selecionar comando com `pnpm --filter`.
-
-Isso evita falha de resolução de workspace.
-
-────────────────────────────────────────
-
-## ◬ Configuração dos Serviços
-
-### canvas-ui
-
-```text
-Root Directory: .
-Build Command:  corepack enable && pnpm install --frozen-lockfile && pnpm build:ui
-Start Command:  pnpm start:ui
-```
-
-Variáveis:
-
+- `DATABASE_URL`
 - `REDIS_URL`
-- `WORKER_BASE_URL`
-
-### worker
-
-```text
-Root Directory: .
-Build Command:  corepack enable && pnpm install --frozen-lockfile
-Start Command:  pnpm start:worker-api
-```
-
-Variáveis:
-
-- `REDIS_URL`
+- `RUNTIME_API_KEY`
 - `GEMINI_API_KEY`
-- `PORT` (ou `$PORT` nativo do Railway)
 
-### redis
+Notion:
 
-- Recomenda-se Redis gerenciado no Railway
-  ou provedor externo compatível.
+- `NOTION_API_KEY`
+- `NOTION_DATA_SOURCE_ID`
+- `NOTION_API_VERSION`
+- `NOTION_INTENTION_PROPERTY`
+- `NOTION_ACCEPTANCE_CRITERIA_PROPERTY`
+- `NOTION_CONSTRAINTS_PROPERTY`
+- `NOTION_STATUS_PROPERTY`
+- `NOTION_READY_VALUE`
 
-────────────────────────────────────────
+Resend e Telegram:
 
-## ⍟ Observações Operacionais
+- `RESEND_PROVIDER_URL`
+- `TELEGRAM_PROVIDER_URL`
+- `PROVIDER_SECRET` ou `NEXUS_SECRET`
+- `AGENT_EMAIL_TO`
+- `AGENT_EMAIL_FROM`
+- `AGENT_EMAIL_SENDER_NAME`
+- `AGENT_TELEGRAM_CHAT_ID`
 
-- Preferir URL privada interna do Railway
-  para `WORKER_BASE_URL` quando disponível.
-- A rota SSE permanece no `canvas-ui`
-  e consome eventos do Redis.
-- O worker executa jobs e publica status
-  sem acoplamento ao frontend.
+IFTTT:
+
+- `IFTTT_ENABLED`
+- `IFTTT_WEBHOOK_KEY`
+- `IFTTT_EVENT_NAME`
+
+O adapter IFTTT permanece desabilitado se a configuração estiver incompleta.
+
+## Comandos de validação
+
+```bash
+mise exec -- pnpm install --frozen-lockfile
+mise exec -- pnpm test
+mise exec -- pnpm lint
+mise exec -- pnpm build
+```
+
+Com `DATABASE_URL` configurado, validar a migration antes do deploy:
+
+```bash
+mise exec -- pnpm db:migrate
+```
+
+## Gates antes do deploy
+
+- escolher explicitamente o PostgreSQL Railway e validar isolamento do schema;
+- criar Redis dedicado ao runtime;
+- configurar `RUNTIME_API_KEY` sem expor seu valor;
+- compartilhar a data source do Notion com a integração e definir seu ID;
+- validar conectividade autenticada com Resend e Telegram;
+- configurar o evento IFTTT somente se o canal for ativado;
+- executar migration, readiness e um E2E controlado;
+- aprovar manualmente o deploy definitivo.

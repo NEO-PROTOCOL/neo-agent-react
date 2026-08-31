@@ -9,11 +9,15 @@
   "scripts": {
     "dev": "pnpm --dir apps/canvas-ui dev",
     "build": "NODE_ENV=production pnpm --dir apps/canvas-ui build",
+    "build:doctrine": "node scripts/build-doctrine-bundle.mjs",
     "start:ui": "pnpm --dir apps/canvas-ui start",
     "start:worker-api": "pnpm --dir services/worker start:api",
+    "db:migrate": "pnpm --dir services/worker db:migrate",
     "build:ui": "NODE_ENV=production pnpm --dir apps/canvas-ui build",
     "lint": "pnpm --dir apps/canvas-ui lint",
     "pilot:run": "node scripts/pilot-run.mjs",
-    "test:pilot": "node --test packages/engine/pilot/PilotLoop.test.js"
+    "test:pilot": "node --test packages/engine/pilot/PilotLoop.test.js",
+    "test:runtime": "pnpm --dir services/worker test",
+    "test": "pnpm test:pilot && pnpm test:runtime"
   }
 }

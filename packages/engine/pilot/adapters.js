@@ -11,7 +11,18 @@ const RUNTIME_DOCUMENTS = [
 ];
 
 export async function loadRuntimeDocuments(runtimeRoot) {
-  if (!runtimeRoot) throw new Error("NEO_AGENT_RUNTIME_ROOT ausente");
+  if (!runtimeRoot) {
+    const raw = await readFile(new URL("./doctrine.bundle.json", import.meta.url), "utf8");
+    const bundle = JSON.parse(raw);
+    if (
+      bundle.schema_version !== "doctrine.bundle.v1" ||
+      !Array.isArray(bundle.documents) ||
+      !bundle.version
+    ) {
+      throw new Error("Bundle de doutrina invalido");
+    }
+    return { documents: bundle.documents, version: bundle.version };
+  }
 
   const documents = [];
   const version = createHash("sha256");

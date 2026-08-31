@@ -1,98 +1,105 @@
+import { timingSafeEqual } from "node:crypto";
 import Fastify from "fastify";
-import { NeoWorker } from "../../packages/engine/worker.js";
-import { NeoContextGateway, loadRuntimeDocuments } from "../../packages/engine/pilot/adapters.js";
-import { prepareWeekIntent } from "../../packages/engine/pilot/contracts.js";
-import { PilotLoop } from "../../packages/engine/pilot/PilotLoop.js";
-import { createPilotRoles } from "../../packages/engine/pilot/roles.js";
+import { NotionSourceAdapter } from "./lib/NotionSourceAdapter.js";
+import { NotificationRouter } from "./lib/NotificationRouter.js";
+import {
+  IFTTTProvider,
+  NotificationProviderRegistry,
+  ResendProvider,
+  TelegramProvider,
+} from "./lib/NotificationProviders.js";
+import { PostgresTaskStateStore } from "./lib/PostgresTaskStateStore.js";
+import { RuntimeCoordinator } from "./lib/RuntimeCoordinator.js";
 
-const FLOW_ID_PATTERN = /^[a-zA-Z0-9_-]{1,128}$/;
-const MAX_NODES_PER_REQUEST = 50;
+const TASK_ID_PATTERN = /^[a-zA-Z0-9_-]{1,128}$/;
+const runtimeApiKey = process.env.RUNTIME_API_KEY;
 
-const app = Fastify({
-  logger: true,
-  bodyLimit: 512 * 1024,
+if (!runtimeApiKey) throw new Error("RUNTIME_API_KEY is required");
+
+const app = Fastify({ logger: true, bodyLimit: 512 * 1024 });
+const store = new PostgresTaskStateStore();
+const notion = new NotionSourceAdapter();
+const providerRegistry = new NotificationProviderRegistry([
+  new ResendProvider(),
+  new TelegramProvider(),
+  new IFTTTProvider(),
+]);
+const notificationRouter = new NotificationRouter({ store, providerRegistry });
+const runtime = new RuntimeCoordinator({
+  store,
+  notion,
+  notificationRouter,
+  providerRegistry,
+  logger: app.log,
 });
 
-app.get("/health", async () => ({ ok: true, service: "neo-worker" }));
+function authorized(header) {
+  if (!header?.startsWith("Bearer ")) return false;
+  const provided = Buffer.from(header.slice(7));
+  const expected = Buffer.from(runtimeApiKey);
+  return provided.length === expected.length && timingSafeEqual(provided, expected);
+}
 
-app.post("/flows/:flowId/execute", async (request, reply) => {
-  const { flowId } = request.params;
-
-  if (!FLOW_ID_PATTERN.test(flowId)) {
-    return reply.code(400).send({ error: "flowId inválido" });
+app.addHook("onRequest", async (request, reply) => {
+  if (["/live", "/ready", "/health"].includes(request.url.split("?")[0])) return;
+  if (!authorized(request.headers.authorization)) {
+    return reply.code(401).send({ error: "unauthorized" });
   }
+});
 
-  const body = request.body || {};
-  const { nodes } = body;
-
-  if (!Array.isArray(nodes) || nodes.length === 0) {
-    return reply.code(400).send({ error: "Body deve conter nodes[]" });
-  }
-
-  if (nodes.length > MAX_NODES_PER_REQUEST) {
-    return reply.code(400).send({ error: `Máximo de ${MAX_NODES_PER_REQUEST} nós por execução` });
-  }
-
-  const worker = new NeoWorker();
-  const results = [];
-
-  try {
-    for (const node of nodes) {
-      const result = await worker.executeNode(flowId, node);
-      results.push({ id: node.id, result });
-    }
-    return { ok: true, flowId, processed: results.length, results };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Falha na execução";
-    return reply.code(500).send({ ok: false, error: message });
-  } finally {
-    await worker.close();
-  }
+app.get("/live", async () => ({ ok: true, service: "neo-agent-react-runtime" }));
+app.get("/ready", async (_request, reply) => {
+  const health = await runtime.isReady();
+  return reply.code(health.ok ? 200 : 503).send(health);
+});
+app.get("/health", async (_request, reply) => {
+  const health = await runtime.isReady();
+  return reply.code(health.ok ? 200 : 503).send(health);
 });
 
 app.post("/pilot/tasks/:taskId/run", async (request, reply) => {
   const { taskId } = request.params;
-  if (!FLOW_ID_PATTERN.test(taskId)) {
-    return reply.code(400).send({ error: "taskId invalido" });
-  }
-
-  let intent;
-  let doctrine;
+  if (!TASK_ID_PATTERN.test(taskId)) return reply.code(400).send({ error: "invalid_task_id" });
   try {
-    intent = prepareWeekIntent({ ...(request.body || {}), task_id: taskId });
-    doctrine = await loadRuntimeDocuments(process.env.NEO_AGENT_RUNTIME_ROOT);
+    const queued = await runtime.enqueueIntent({ ...(request.body || {}), task_id: taskId });
+    return reply.code(202).send({
+      ok: true,
+      task_id: queued.intent.task_id,
+      job_id: queued.jobId,
+      accepted: queued.claimed,
+      recovered: queued.recovered,
+    });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Entrada invalida";
-    return reply.code(400).send({ ok: false, error: message });
-  }
-
-  const worker = new NeoWorker();
-  const roles = createPilotRoles({
-    providerId: process.env.PILOT_PROVIDER || "gemini",
-    model: process.env.PILOT_MODEL || undefined,
-    documents: doctrine.documents,
-  });
-  const loop = new PilotLoop({
-    worker,
-    roles,
-    memoryGateway: new NeoContextGateway(),
-  });
-
-  try {
-    const result = await loop.run(intent, { doctrineVersion: doctrine.version });
-    return result;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Falha no piloto";
+    const message = error instanceof Error ? error.message : "enqueue_failed";
+    request.log.warn({ event: "task_enqueue_rejected", task_id: taskId, error: message });
     return reply.code(409).send({ ok: false, error: message });
-  } finally {
-    await worker.close();
   }
 });
 
+app.get("/pilot/tasks/:taskId", async (request, reply) => {
+  const { taskId } = request.params;
+  if (!TASK_ID_PATTERN.test(taskId)) return reply.code(400).send({ error: "invalid_task_id" });
+  const state = await store.getContext(taskId);
+  if (!Object.keys(state).length) return reply.code(404).send({ error: "task_not_found" });
+  return { task_id: taskId, state };
+});
+
+app.post("/sources/notion/poll", async (_request, reply) => {
+  const queued = await runtime.triggerNotionPoll();
+  return reply.code(202).send({ ok: true, job_id: queued.jobId });
+});
+
+const shutdown = async (signal) => {
+  app.log.info({ event: "shutdown_started", signal });
+  await app.close();
+  await runtime.close();
+  await store.close();
+};
+
+process.once("SIGTERM", () => shutdown("SIGTERM").finally(() => process.exit(0)));
+process.once("SIGINT", () => shutdown("SIGINT").finally(() => process.exit(0)));
+
+await runtime.start();
 const port = Number(process.env.PORT || 4001);
 const host = process.env.HOST || "0.0.0.0";
-
-app.listen({ port, host }).catch((err) => {
-  app.log.error(err);
-  process.exit(1);
-});
+await app.listen({ port, host });

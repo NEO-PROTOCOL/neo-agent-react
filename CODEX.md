@@ -11,3 +11,21 @@
 
 * Todo o código compartilhado deve viver no repositório `packages/`. Serviços ou aplicativos não devem tentar burlar as restrições acessando os sub-caminhos uns dos outros diretamente caso violem regras de boundaries.
 * Deploy deve seguir invariavelmente os comandos expressos em `RAILWAY_DEPLOY.md`.
+
+## Continuidade Entre Agentes
+
+Todo agente que retomar o deploy deve começar por `RAILWAY_DEPLOY.md` e
+revalidar o estado Railway ao vivo. Não conclua que o runtime está operacional
+apenas porque a imagem compilou, a migration rodou ou o deployment aparece
+como `SUCCESS`.
+
+O contrato mínimo é:
+
+- `pnpm db:migrate` no pre-deploy;
+- `pnpm start:worker-api` como processo persistente;
+- `/live` para liveness;
+- `/ready` para dependências;
+- E2E autenticado e controlado como prova separada.
+
+Configurações locais (`HOST=127.0.0.1` e caminhos absolutos do Mac) não fazem
+parte do runtime Railway. Nunca copie nem exponha valores de secrets.

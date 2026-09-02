@@ -178,21 +178,24 @@ export class RuntimeCoordinator {
   }
 
   async isReady() {
-    const [postgres, redis] = await Promise.allSettled([
+    const [postgres, redis, orchestrator] = await Promise.allSettled([
       this.store.isReady(),
       this.runQueueConnection.ping(),
+      this.discoveryGateway.checkHealth(),
     ]);
+    const orchestratorReady =
+      orchestrator.status === "fulfilled" && orchestrator.value === true;
     return {
       ok:
         postgres.status === "fulfilled" &&
         redis.status === "fulfilled" &&
+        orchestratorReady &&
         this.llmReady &&
-        this.discoveryGateway.isConfigured() &&
         this.contextRetriever.isConfigured(),
       postgres: postgres.status === "fulfilled" ? "ok" : "unavailable",
       redis: redis.status === "fulfilled" ? "ok" : "unavailable",
       llm: this.llmReady ? "configured" : "unavailable",
-      context_discovery: this.discoveryGateway.isConfigured() ? "configured" : "unavailable",
+      context_discovery: orchestratorReady ? "ok" : "unavailable",
       context_sources: this.contextRetriever.isConfigured() ? "configured" : "unavailable",
       notion: this.notion.isConfigured() ? "configured" : "disabled",
       providers: Object.fromEntries(

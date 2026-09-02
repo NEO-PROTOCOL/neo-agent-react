@@ -65,6 +65,20 @@ export class OrchestratorDiscoveryGateway {
     return Boolean(this.baseUrl && typeof this.fetchImpl === "function");
   }
 
+  async checkHealth() {
+    if (!this.isConfigured()) return false;
+    try {
+      const response = await this.fetchImpl(`${this.baseUrl}/health`, {
+        method: "GET",
+        headers: { accept: "application/json" },
+        signal: AbortSignal.timeout(this.timeoutMs),
+      });
+      return response.ok;
+    } catch {
+      return false;
+    }
+  }
+
   async discover({ query, currentNode, maxNodes = 3, budget = DEFAULT_DISCOVERY_BUDGET }) {
     if (!this.baseUrl) throw new DiscoveryUnavailableError("orchestrator_not_configured");
     if (typeof this.fetchImpl !== "function") {

@@ -1,7 +1,7 @@
 # Railway Deploy
 
 ```text
-Status: DEPLOY IN PROGRESS / NOT VERIFIED
+Status: DOCKERFILE MIGRATION PREPARED / NOT VERIFIED
 Mode: PERSISTENT AGENT RUNTIME
 ```
 
@@ -22,7 +22,7 @@ próximo agente deve consultar o Railway novamente antes de agir.
 - o deployment do runtime `092dc045-d8dd-4994-8c81-47749ac9546c`
   permanecia em `DEPLOYING` no momento do snapshot.
 
-Evidência mais recente:
+Evidência do deployment anterior:
 
 - a migration `001_agent_runtime.sql` foi aplicada e emitiu
   `migration_applied`;
@@ -39,8 +39,8 @@ Pre-deploy Command = pnpm db:migrate
 Start Command      = pnpm start:worker-api
 ```
 
-Não redeployar nem alterar configuração com base apenas neste snapshot. Faça
-read-before-write e obtenha autorização operacional para a mutação.
+Esse erro motivou a migração para um `Dockerfile` explícito e a retirada do
+`railway.json` legado. Confirme o estado efetivo após o próximo deployment.
 
 ## Escopo
 
@@ -57,16 +57,22 @@ O serviço deve usar a raiz deste repositório como Root Directory, porque
 
 ## Configuração do serviço
 
-O arquivo `railway.json` define:
+O `Dockerfile` na raiz define a imagem do worker. O serviço Railway define:
 
-- build com Railpack e instalação congelada;
+- builder `DOCKERFILE`, usando `/Dockerfile`;
 - migration PostgreSQL no pre-deploy;
 - início com `pnpm start:worker-api`;
 - readiness em `/ready`;
 - restart `ON_FAILURE` e uma réplica inicial.
 
-Se o painel Railway possuir overrides manuais, a configuração efetiva pode
-divergir de `railway.json`. Sempre compare os dois antes de diagnosticar.
+O campo **Railway Config File** deve permanecer vazio. O antigo Config as Code
+por `railway.json` foi removido porque está deprecated e não deve ser adotado
+por serviços novos. Não configure `railway.json` nesse campo.
+
+O Infrastructure as Code TypeScript é project-wide. Ele não foi introduzido
+neste reparo mínimo porque exige importar e revisar também Postgres, Redis e os
+demais serviços antes de um `plan` seguro. Até essa reconciliação, a
+configuração efetiva do serviço Railway é a autoridade de deploy.
 
 Não existe deploy autorizado por este documento. A criação ou alteração de
 serviços Railway depende de aprovação operacional.
@@ -131,6 +137,12 @@ mise exec -- pnpm install --frozen-lockfile
 mise exec -- pnpm test
 mise exec -- pnpm lint
 mise exec -- pnpm build
+```
+
+Com Docker disponível:
+
+```bash
+docker build -t neo-agent-react-runtime:local .
 ```
 
 Com `DATABASE_URL` configurado, validar a migration antes do deploy:

@@ -16,6 +16,8 @@ RUN pnpm --filter neo-worker... install --prod --frozen-lockfile
 COPY packages/engine packages/engine
 COPY services/worker services/worker
 
+RUN chown -R node:node /app
+
 USER node
 
 EXPOSE 4001

@@ -9,7 +9,7 @@
 ========================================
 Status: ACTIVE
 Mode: DISTRIBUTED SERVICES
-Package Manager: pnpm@11.7.0
+Package Manager: pnpm@11.24.0
 ========================================
 ```
 
@@ -18,7 +18,8 @@ Package Manager: pnpm@11.7.0
 `neo-agent-react` implementa runtime de agentes NEO
 com canvas visual em Next.js,
 estado reativo via Zustand,
-e execução distribuída via worker + Redis.
+e execução persistente via worker, PostgreSQL e BullMQ/Redis no Railway.
+O frontend não é soberano e não é necessário para o polling Notion.
 
 ────────────────────────────────────────
 
@@ -43,10 +44,9 @@ neo-agent-react/
 
 Consulte o [SETUP.md](./SETUP.md) para detalhes completos de variáveis de ambiente, catálogo de scripts e modos de execução.
 
-```bash
-make bootstrap
-make docker-up
-```
+`make bootstrap` instala dependências na raiz deste repo. Docker local não
+é requisito do runtime Railway. O Compose legado não provisiona o PostgreSQL
+e a autenticação atuais; não representa a stack produtiva completa.
 
 Serviços padrão:
 
@@ -54,36 +54,18 @@ Serviços padrão:
 - Worker API: `http://localhost:4001`
 - Redis: `redis://localhost:6379`
 
-Modo híbrido:
+### Loop semanal persistente
 
-```bash
-make infra-up
-make ui
-make worker-api
+```text
+Notion → WeekIntent → PostgreSQL → Context Discovery
+→ Operator → Planner → Executor → Reviewer → Guardian → Approval
 ```
 
-### Piloto semanal local
-
-O loop `Operator → Planner → Executor → Reviewer → Guardian` roda somente no
-worker local. Redis é a fonte de verdade em `context:<task_id>`; o Executor do
-piloto não recebe tools.
-
-Com a credencial do provider já disponível no ambiente:
-
-```bash
-make infra-up
-NEO_AGENT_RUNTIME_ROOT=/Users/nettomello/neomello/neo-agent-runtime/neo-agent-runtime \
-  HOST=127.0.0.1 \
-  PILOT_PROVIDER=gemini \
-  PILOT_MODEL=gemini-3.5-flash-lite \
-  pnpm start:worker-api
-```
-
-Em outro terminal:
-
-```bash
-pnpm pilot:run -- --input /caminho/absoluto/week-task.json
-```
+Notion fornece intenção humana; PostgreSQL preserva estado e evidência.
+Redis transporta jobs, não substitui o ledger. O Executor não recebe tools.
+O trigger/CLI apenas solicita execução autenticada; Operator é um papel
+explícito do loop. Polling e revisões Notion seguem o contrato em
+[RAILWAY_DEPLOY.md](./RAILWAY_DEPLOY.md).
 
 `PILOT_MODEL` seleciona o modelo do adapter sem alterar o `PilotLoop`.
 O Guardian permite no máximo uma repetição e bloqueia efeitos externos.
@@ -93,6 +75,8 @@ O Guardian permite no máximo uma repetição e bloqueia efeitos externos.
 ## ◬ Contrato de Runtime
 
 - UI e worker são serviços independentes.
+- Tasks, eventos append-only, approvals e outbox vivem no PostgreSQL.
+- Fonte Notion: `Incluir no Agent = true`; Status não é gate de execução.
 - Integração entre serviços ocorre por:
   - Redis Pub/Sub
   - HTTP (`WORKER_BASE_URL`)

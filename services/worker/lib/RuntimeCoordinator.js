@@ -51,6 +51,7 @@ export class RuntimeCoordinator {
     this.logger = logger;
     this.timezone = timezone;
     this.now = now;
+    this.notionPollingEnabled = process.env.NOTION_POLLING_ENABLED === "true";
     this.runQueueConnection = redisConnection(redisUrl);
     this.runWorkerConnection = redisConnection(redisUrl);
     this.notificationQueueConnection = redisConnection(redisUrl);
@@ -118,11 +119,11 @@ export class RuntimeCoordinator {
       })
     );
     await Promise.all([
-      this.runQueue.upsertJobScheduler(
+      this.notionPollingEnabled ? this.runQueue.upsertJobScheduler(
         "notion-poll",
         { every: 10 * 60 * 1000 },
-        { name: "notion-poll", data: {} }
-      ),
+        { name: "notion-poll", data: { continuous: true } }
+      ) : this.runQueue.removeJobScheduler("notion-poll"),
       this.runQueue.upsertJobScheduler(
         "outbox-dispatch",
         { every: 60 * 1000 },
@@ -142,6 +143,9 @@ export class RuntimeCoordinator {
   }
 
   async enqueueIntent(rawIntent) {
+    if (rawIntent.source?.type === "notion") {
+      throw new Error("Notion intents must enter through the authenticated Notion source");
+    }
     const intent = prepareWeekIntent(rawIntent, this.now);
     const claimed = await this.store.claimTask(intent);
     if (claimed) {
@@ -172,16 +176,41 @@ export class RuntimeCoordinator {
     return { intent, jobId: job.id, claimed, recovered };
   }
 
-  async triggerNotionPoll() {
-    const job = await this.runQueue.add("notion-poll", {}, { attempts: 1 });
+  async ingestNotionIntent(rawIntent) {
+    const incoming = prepareWeekIntent(rawIntent, this.now);
+    const transition = await this.store.ingestNotionIntent(incoming);
+    const state = await this.store.getContext(transition.intent.task_id);
+    // A persisted terminal result is never retried by source polling, even if BullMQ lost its job.
+    if (transition.stale || state.approval) return { ...transition, jobId: null };
+    const job = await this.runQueue.add("run-task", { taskId: transition.intent.task_id }, {
+      jobId: `task-${transition.intent.task_id}`, attempts: 1,
+      removeOnComplete: false, removeOnFail: false,
+    });
+    return { ...transition, jobId: job.id };
+  }
+
+  async pollNotionOnce(options = {}) {
+    const source = await this.notion.listWeekIntents(options);
+    const accepted = [];
+    for (const rawIntent of source.intents) {
+      const result = await this.ingestNotionIntent(rawIntent);
+      accepted.push({ task_id: result.intent.task_id, claimed: result.claimed,
+        operational_change: result.changed, job_id: result.jobId });
+    }
+    return { source_status: source.status, accepted };
+  }
+
+  async triggerNotionPoll({ pageId } = {}) {
+    const job = await this.runQueue.add("notion-poll", { pageId }, { attempts: 1 });
     return { jobId: job.id };
   }
 
   async isReady() {
-    const [postgres, redis, orchestrator] = await Promise.allSettled([
+    const [postgres, redis, orchestrator, notion] = await Promise.allSettled([
       this.store.isReady(),
       this.runQueueConnection.ping(),
       this.discoveryGateway.checkHealth(),
+      this.notion.isConfigured() ? this.notion.checkHealth() : Promise.resolve(false),
     ]);
     const orchestratorReady =
       orchestrator.status === "fulfilled" && orchestrator.value === true;
@@ -190,6 +219,7 @@ export class RuntimeCoordinator {
         postgres.status === "fulfilled" &&
         redis.status === "fulfilled" &&
         orchestratorReady &&
+        (!this.notionPollingEnabled || (notion.status === "fulfilled" && notion.value === true)) &&
         this.llmReady &&
         this.contextRetriever.isConfigured(),
       postgres: postgres.status === "fulfilled" ? "ok" : "unavailable",
@@ -197,7 +227,8 @@ export class RuntimeCoordinator {
       llm: this.llmReady ? "configured" : "unavailable",
       context_discovery: orchestratorReady ? "ok" : "unavailable",
       context_sources: this.contextRetriever.isConfigured() ? "configured" : "unavailable",
-      notion: this.notion.isConfigured() ? "configured" : "disabled",
+      notion: !this.notion.isConfigured() ? "disabled" : notion.status === "fulfilled" && notion.value ? "ok" : "unavailable",
+      notion_polling: this.notionPollingEnabled ? "enabled" : "disabled",
       providers: Object.fromEntries(
         ["resend", "telegram", "ifttt"].map((channel) => [
           channel,
@@ -216,13 +247,8 @@ export class RuntimeCoordinator {
       return { task_id: result.task_id, status: result.status };
     }
     if (job.name === "notion-poll") {
-      const source = await this.notion.listWeekIntents();
-      const accepted = [];
-      for (const rawIntent of source.intents) {
-        const queued = await this.enqueueIntent(rawIntent);
-        accepted.push({ task_id: queued.intent.task_id, claimed: queued.claimed });
-      }
-      return { source_status: source.status, accepted };
+      if (job.data.continuous && !this.notionPollingEnabled) return { source_status: "disabled", accepted: [] };
+      return this.pollNotionOnce({ pageId: job.data.pageId });
     }
     if (job.name === "outbox-dispatch") {
       const notifications = await this.store.listDispatchableNotifications();

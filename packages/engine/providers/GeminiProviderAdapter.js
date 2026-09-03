@@ -45,6 +45,7 @@ export class GeminiProviderAdapter extends ProviderAdapter {
     let contents = [{ role: "user", parts: [{ text: "INICIE A EXECUCAO DA MISSAO." }] }];
     let toolCallsCount = 0;
     let rawResponse = "";
+    let metadata = {};
 
     for (let iteration = 0; iteration < maxToolCalls + 1; iteration += 1) {
       const { response } = await withTimeout(
@@ -54,6 +55,18 @@ export class GeminiProviderAdapter extends ProviderAdapter {
       );
 
       const modelParts = response.candidates?.[0]?.content?.parts || [];
+      metadata = {
+        provider: this.id,
+        model: model || this.defaultModel,
+        model_version: response.modelVersion || null,
+        finish_reason: response.candidates?.[0]?.finishReason || null,
+        usage: {
+          prompt_tokens: response.usageMetadata?.promptTokenCount ?? null,
+          output_tokens: response.usageMetadata?.candidatesTokenCount ?? null,
+          thinking_tokens: response.usageMetadata?.thoughtsTokenCount ?? null,
+          total_tokens: response.usageMetadata?.totalTokenCount ?? null,
+        },
+      };
       try {
         rawResponse = response.text();
       } catch {
@@ -85,6 +98,6 @@ export class GeminiProviderAdapter extends ProviderAdapter {
       ];
     }
 
-    return { text: rawResponse };
+    return { text: rawResponse, metadata };
   }
 }

@@ -188,13 +188,13 @@ const reviewOutputSchema = {
   required: ["schema_version", "task_id", "verdict", "findings", "reviewed_at"],
 };
 
-function baseAgent({ id, role, mission, constraints, requiredContextKeys, outputSchema, provider }) {
+function baseAgent({ id, role, mission, constraints, requiredContextKeys, outputSchema, provider, maxTokens = 2048 }) {
   return {
     id,
     type: "agent",
     provider: provider.id,
     ...(provider.model ? { model: provider.model } : {}),
-    config: { temperature: 0, maxTokens: 2048 },
+    config: { temperature: 0, maxTokens },
     systemConfig: {
       role,
       mission,
@@ -217,6 +217,8 @@ export function createPilotRoles({ providerId, model, documents = [] }) {
   return {
     operator: baseAgent({
       id: "operator",
+      // The controlled E2E also proved MAX_TOKENS truncation at this role.
+      maxTokens: 8192,
       role: "Operator do piloto semanal",
       mission: "Normalizar a intencao semanal recebida em um Task pilot.v1 verificavel, com efeitos estritamente locais.",
       constraints: [
@@ -248,6 +250,8 @@ export function createPilotRoles({ providerId, model, documents = [] }) {
     executor(attempt) {
       return baseAgent({
         id: `execution_${attempt}`,
+        // Gemini thinking shares the output budget; 2048 truncated the native JSON.
+        maxTokens: 8192,
         role: "Executor local sem tools externas",
         mission: `Executar o plano como geracao estruturada local. Esta e a tentativa ${attempt} de 2.`,
         constraints: [

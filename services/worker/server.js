@@ -84,8 +84,10 @@ app.get("/pilot/tasks/:taskId", async (request, reply) => {
   return { task_id: taskId, state };
 });
 
-app.post("/sources/notion/poll", async (_request, reply) => {
-  const queued = await runtime.triggerNotionPoll();
+app.post("/sources/notion/poll", async (request, reply) => {
+  const pageId = request.body?.page_id;
+  if (pageId && !/^[0-9a-f-]{32,36}$/i.test(pageId)) return reply.code(400).send({ error: "invalid_page_id" });
+  const queued = await runtime.triggerNotionPoll({ pageId });
   return reply.code(202).send({ ok: true, job_id: queued.jobId });
 });
 

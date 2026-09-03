@@ -2,6 +2,21 @@
 
 Este documento registra os pontos de ação pendentes identificados na inicialização do workspace para garantir a funcionalidade correta do runtime e do frontend.
 
+## Estado de continuidade — 2026-09-03
+
+- [x] Notion **✅ Tarefas & Ações** → WeekIntent → PostgreSQL → Agent Runtime
+  → `APPROVED`, com critérios explícitos e routing comprovado.
+- [x] Corrigir truncamento JSON sem aceitar saída inválida nem apagar histórico.
+- [x] Comprovar Status-only sem reexecução, retry controlado idempotente,
+  preservação após restart e polling contínuo real sem duplicação.
+- [x] Documentar os contratos para os próximos agentes em `AGENTS.md`,
+  `CODEX.md`, `CLAUDE.md`, `SETUP.md` e `RAILWAY_DEPLOY.md`.
+
+O trace e os IDs estão em [RAILWAY_DEPLOY.md](../RAILWAY_DEPLOY.md).
+Revalidar estado externo antes de agir. As seções abaixo são histórico de
+bootstrap e backlog não autorizado, não instruções para reabrir arquitetura.
+Nenhuma nova integração/feature decorre automaticamente deste fechamento.
+
 ## 1. Restaurar/Revisar o Workspace do PNPM
 >
 > [!CAUTION]

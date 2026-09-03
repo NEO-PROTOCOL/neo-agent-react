@@ -21,7 +21,7 @@ test("readiness falha quando Orchestrator configurado esta indisponivel", async 
     providerRegistry: {
       get: () => ({ isEnabled: () => true }),
     },
-    notion: { isConfigured: () => true },
+    notion: { isConfigured: () => true, checkHealth: async () => true },
     llmReady: true,
   });
 
@@ -40,7 +40,7 @@ test("readiness aceita Orchestrator com health real disponivel", async () => {
     providerRegistry: {
       get: () => ({ isEnabled: () => true }),
     },
-    notion: { isConfigured: () => true },
+    notion: { isConfigured: () => true, checkHealth: async () => true },
     llmReady: true,
   });
 

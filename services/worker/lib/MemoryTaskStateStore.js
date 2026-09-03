@@ -1,8 +1,12 @@
+import { planNotionIngestion } from "./NotionIngestion.js";
+
 export class MemoryTaskStateStore {
   constructor() {
     this.tasks = new Map();
     this.outbox = new Map();
     this.nextOutboxId = 1;
+    this.notionSources = new Map();
+    this.events = [];
   }
 
   async isReady() {
@@ -19,6 +23,17 @@ export class MemoryTaskStateStore {
     return structuredClone(this.tasks.get(taskId)?.intent || null);
   }
 
+  async ingestNotionIntent(incoming) {
+    const transition = planNotionIngestion(incoming, this.notionSources.get(incoming.source.ref));
+    if (transition.claimed) await this.claimTask(transition.intent);
+    if (transition.changed) {
+      if (transition.statusEvent) await this.setContextField(transition.intent.task_id, "notion_status_changed", transition.statusEvent);
+      await this.setContextField(transition.intent.task_id, "source_observation", transition.observation);
+      this.notionSources.set(incoming.source.ref, { intent: transition.intent, observation: transition.observation });
+    }
+    return transition;
+  }
+
   async getContext(taskId) {
     return structuredClone(this.tasks.get(taskId) || {});
   }
@@ -27,6 +42,8 @@ export class MemoryTaskStateStore {
     const task = this.tasks.get(taskId);
     if (!task) throw new Error(`Unknown task: ${taskId}`);
     task[key] = structuredClone(value);
+    const event = { taskId, key, value: structuredClone(value) };
+    if (!this.events.some((existing) => JSON.stringify(existing) === JSON.stringify(event))) this.events.push(event);
   }
 
   async listTaskSummaries() {

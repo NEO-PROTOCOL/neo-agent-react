@@ -93,6 +93,16 @@ export class NeoWorker {
       const enrichedContext = { ...reducedContext, _skills: skillResults };
 
       const result = await this.runner.execute(validatedNode, enrichedContext, {
+        recordDiagnostic: async (diagnostic) => {
+          await this.setContextField(flowId, `provider_diagnostic_${diagnostic.diagnostic_id}`, diagnostic);
+          if (typeof this.logger.info === "function") this.logger.info({
+            event: diagnostic.event, flow_id: flowId, node_id: nodeId,
+            diagnostic_id: diagnostic.diagnostic_id, provider: diagnostic.provider,
+            model: diagnostic.model, finish_reason: diagnostic.finish_reason,
+            response_sha256: diagnostic.response_sha256, accepted: diagnostic.accepted,
+            failure_kind: diagnostic.failure_kind,
+          });
+        },
         listToolDeclarations: (allowlist) =>
           this.skillRegistry.listToolDeclarations(allowlist),
         executeTool: async (name, args) => {

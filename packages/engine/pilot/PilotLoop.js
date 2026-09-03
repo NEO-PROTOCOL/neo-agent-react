@@ -245,6 +245,20 @@ export class PilotLoop {
 
     let lastReviewRef = null;
     try {
+      const intakeProblem = !intent.acceptance_criteria.length
+        ? "NOTION_ACCEPTANCE_CRITERIA_MISSING"
+        : !intent.current_node || (intent.source.type === "notion" && intent.routing_status !== "RESOLVED")
+          ? "NOTION_ROUTING_UNRESOLVED"
+          : intent.intake_status === "NEEDS_HUMAN" ? "NOTION_INTAKE_INVALID" : null;
+      if (intakeProblem) {
+        await this.#write(intent.task_id, "intake", {
+          status: "NEEDS_HUMAN", current_node: intent.current_node,
+          routing_status: intent.routing_status || "UNRESOLVED",
+          reasons: intent.intake_reasons || [intakeProblem],
+        });
+        return this.#finalize({ intent, decision: "NEEDS_HUMAN", rule: intakeProblem,
+          reviewRef: null, memoryKind: "failure" });
+      }
       await this.#status(intent.task_id, "DISCOVERING_CONTEXT", 0, "pending");
       const preflight = await this.#preflight(intent, state);
       state = await this.worker.getContext(intent.task_id);
@@ -314,7 +328,17 @@ export class PilotLoop {
             this.roles.executor(attempt)
           );
           assertRealProviderResult(executionRaw, "Executor");
-          execution = ExecutionSchema.parse(executionRaw);
+          const validated = ExecutionSchema.safeParse(executionRaw);
+          if (!validated.success) {
+            await this.#write(intent.task_id, `execution_validation_${attempt}`, {
+              event: "EXECUTOR_SCHEMA_VALIDATION_FAILED", stage: "ExecutionSchema.safeParse",
+              node_id: `execution_${attempt}`, response_checksum: stableChecksum(executionRaw),
+              issues: validated.error.issues.map(({ code, path }) => ({ code, path })),
+              at: this.now().toISOString(),
+            });
+            throw new PilotError("PILOT_EXECUTION_ERROR", "Executor output schema validation failed");
+          }
+          execution = validated.data;
           this.#assertExecutionBoundary(task, plan, execution, attempt);
           execution.action.input_checksum = stableChecksum({ task, plan, attempt });
           execution.evidence.checksum_sha256 = stableChecksum(execution.action.output);
@@ -390,7 +414,9 @@ export class PilotLoop {
     } catch (error) {
       const code = error instanceof PilotError ? error.code : "PILOT_EXECUTION_ERROR";
       const message = error instanceof Error ? error.message : "Falha desconhecida no piloto";
-      await this.#write(intent.task_id, "error", { code, message, at: this.now().toISOString() });
+      await this.#write(intent.task_id, "error", { code, message, at: this.now().toISOString(),
+        ...(error.diagnostic ? { diagnostic_ref: `provider_diagnostic_${error.diagnostic.diagnostic_id}` } : {}),
+      });
       return this.#finalize({
         intent,
         decision: "NEEDS_HUMAN",

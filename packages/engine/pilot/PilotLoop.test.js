@@ -121,6 +121,8 @@ class EmptyContextRetrieverStub {
 function rawIntent(taskId) {
   return {
     task_id: taskId,
+    current_node: "neo-agent-react",
+    routing_status: "RESOLVED",
     intention: "Transformar segunda: revisar backlog em checklist Markdown.",
     acceptance_criteria: [CRITERION],
     constraints: ["Sem tools externas"],

@@ -1,9 +1,167 @@
 # Railway Deploy
 
 ```text
-Status: DOCKERFILE MIGRATION PREPARED / NOT VERIFIED
+Status: NOTION E2E APPROVED / CONTINUOUS POLLING VERIFIED
 Mode: PERSISTENT AGENT RUNTIME
 ```
+
+## Snapshot operacional — 2026-09-03
+
+Este snapshot substitui as conclusões operacionais de 2026-09-02 abaixo,
+preservadas como histórico. Não substitui consultas ao runtime atual.
+
+- runtime Railway: `neo-agent-react`, mesmo projeto/serviço abaixo;
+- Dockerfile build e deployment verificados como `SUCCESS`;
+- upload do código: `09e58672-a96e-43b6-a32a-3391ff14ed72`;
+- restart com polling habilitado: `70a1c557-8a8a-4a21-8754-5079ba676e5b`;
+- `GET /ready`: HTTP `200`, Postgres/Redis/discovery/Notion `ok`;
+- código enviado pelo CLI a partir do working tree, sem novo commit naquele
+  momento; publicação posterior deve ser identificada pelo histórico Git;
+- Git HEAD base: `48b26c7`; não representa sozinho o código desse upload;
+- nenhuma migration nova, mudança de provider de notificação ou de serviço.
+
+A fonte oficial é **✅ Tarefas & Ações**, data source
+`af8aafe2-3a5c-41c9-b707-8bb55bdfb14d`. O adapter não escreve no Notion.
+
+### Contrato de ingestão
+
+- Seleção exclusivamente por `Incluir no Agent = true`.
+- `Status` não é gate; alteração isolada gera `NOTION_STATUS_CHANGED` e
+  atualiza a observação persistida, sem executar novamente o loop.
+- `Descrição` contém `Contexto:`, `Critérios de aceite:` e `Restrições:`.
+  Critérios ausentes resultam em `NEEDS_HUMAN`; não são inventados.
+- Page ID, revisão Notion, checksum, organização, projeto, domínio,
+  prioridade, datas e responsável permanecem no contexto de origem.
+- Conteúdo executável, prioridade e datas relevantes compõem a revisão
+  processável; repetir o mesmo snapshot não cria execução.
+- Routing exige correspondência comprovada com o registry canônico.
+  Sem correspondência: `current_node = null`, `routing_status = UNRESOLVED`.
+
+### E2E e preservação de histórico
+
+Página única: `3d08c6e8-3be0-8143-ba82-d2885fc0912b`, tarefa
+`Preparar checklist mínimo da semana`.
+
+As três tentativas da mesma página compartilham o prefixo
+`notion-3d08c6e83be08143ba82d2885fc0912b-`:
+
+| Sufixo da tentativa | Resultado preservado | Eventos |
+| --- | --- | ---: |
+| `f0add7eaed203cb6ef13932f` | `NEEDS_HUMAN` | 18 |
+| `retry-711cb352570fcd4ab0e1d56e` | `NEEDS_HUMAN` | 13 |
+| `retry-447cd521a521ff566d8fda4a` | `APPROVED` | 24 |
+
+Não são três tarefas Notion: são tentativas auditáveis vinculadas, sem
+reescrever a aprovação anterior. A última foi aprovada em
+`2026-09-03T08:51:52.406Z`, pela regra
+`LOW_RISK_LOCAL_EVIDENCE_PASS`, com artefato `- [ ] Revisar backlog`.
+
+Cadeia da tentativa aprovada, por sequence persistida:
+
+```text
+31 intent → 32 controlled_retry → 33 source_observation
+35 DISCOVERING → 36 discovery → 37 task_context → 38 memory
+39 OPERATING → 40 provider_diagnostic → 41 task
+42 PLANNING → 43 provider_diagnostic → 44 plan
+45 EXECUTING → 46 provider_diagnostic → 47 execution_1
+48 REVIEWING → 49 provider_diagnostic → 50 review_1
+51 guardian_1 → 52 approval → 53 APPROVED
+54 notion_status_changed → 55 source_observation
+```
+
+O discovery foi avaliado e persistido como `not_required`, com justificativa
+`no_cross_node_match`: a tarefa só formata texto fornecido. Isto não constitui
+prova de integração cross-domain. A memória opcional ficou `unavailable`.
+
+Após a aprovação, alteração humana somente de `Doing` para `Concluído`
+gerou os eventos 54/55. Polling manual autenticado retornou `202` (job `729`),
+sem nova tarefa/job agentic. Operator/Planner/Executor/Reviewer/Approval
+permaneceram com uma execução cada nessa tentativa. Repetir a mesma chave
+de reprocessamento retornou `claimed=false`, `job_id=null`.
+
+Os hashes dos 16 eventos originais permaneceram iguais. Os 53 eventos
+anteriores à mudança de Status e as três aprovações também permaneceram
+iguais. Após restart foram confirmados os mesmos 55 eventos e resultados.
+As três cadeias de payload/event hashes foram recalculadas e validadas.
+
+### Diagnóstico do bloqueio de JSON
+
+Provider/modelo: `gemini` / `gemini-3.8-flash`. O runner já utilizava
+`application/json` com schema nativo. O orçamento de 2048 tokens foi
+consumido majoritariamente por thinking e a resposta terminou truncada
+(`MAX_TOKENS`), antes da validação do contrato do Executor.
+
+A resposta bruta da falha original não havia sido persistida. Uma
+reprodução controlada com a configuração/contexto persistidos comprovou:
+243 bytes, string não terminada na posição 243 em `JSON.parse`, 1915 tokens
+de thinking e 118 de saída. Diagnóstico append-only no evento 17, checksum:
+
+```text
+11e31379eb6d8c808abb5e256840592ba879927205754b9036b1c9822a3e811b
+```
+
+Na primeira tentativa controlada, o mesmo gap foi comprovado no Operator:
+`MAX_TOKENS`, 1963 tokens de thinking, 71 de saída; evento 27. Somente
+Executor e Operator passaram a 8192 tokens. Planner/Reviewer ficaram em
+2048. O patch não troca modelo, não adiciona tools e não repara JSON.
+
+Os diagnósticos agora registram provider/modelo, motivo de conclusão,
+contagem de tokens, checksum, tamanho, erro de parsing e referência de
+schema. Fragmentos de falha retêm apenas estrutura JSON mascarada, sem
+valores/chaves/prosa. Resposta incompleta ou JSON inválido é rejeitado;
+remoção de fence Markdown, já existente, passa a ser explicitamente
+registrada. Falha de schema do Executor também recebe registro estruturado.
+
+### Reprocessamento controlado
+
+Executar somente com aprovação do operador, dentro do container existente
+(via Railway SSH), usando IDs comprovados e uma chave estável por pedido:
+
+```bash
+node /app/services/worker/scripts/reprocess-task.mjs \
+  --task TASK_ID_DA_TENTATIVA_BLOQUEADA \
+  --request CHAVE_IDEMPOTENTE_DO_PEDIDO --approve
+```
+
+O comando aceita somente o bloqueio de saída inválida autorizado e o caso
+comprovado de truncamento do Operator dentro dessa recuperação. Cria uma
+nova tentativa vinculada em transação e mantém approvals/eventos antigos.
+Não é retry automático, não altera conteúdo Notion e recusa tarefas já
+aprovadas ou com observação de origem posterior. Para consultar/repetir um
+pedido, reutilizar o mesmo parent ID e a mesma chave; não inventar outra.
+
+### Operação do polling
+
+`NOTION_POLLING_ENABLED=true` habilita o scheduler BullMQ `notion-poll`, a
+cada 600000 ms, com `continuous: true`. Foi ativado somente após o E2E e a
+prova de Status sem reexecução. `/ready` deve mostrar `notion: ok` e
+`notion_polling: enabled`. Para desligar, definir a variável como `false`
+e aplicar novo deployment; o polling manual continua disponível em
+`POST /sources/notion/poll`, autenticado com `RUNTIME_API_KEY`.
+
+O primeiro disparo durante a sobreposição do restart retornou `disabled`;
+não foi contado como prova de leitura automática. O ciclo automático
+`repeat:notion-poll:1788426248479` concluiu em
+`2026-09-03T09:04:09.123Z`, com `continuous: true` e resultado:
+
+```json
+{
+  "source_status": "ok",
+  "accepted": [{
+    "task_id": "notion-3d08c6e83be08143ba82d2885fc0912b-retry-447cd521a521ff566d8fda4a",
+    "claimed": false,
+    "operational_change": false,
+    "job_id": null
+  }]
+}
+```
+
+Não houve nova execução. O scheduler permaneceu ativo a cada 10 minutos,
+sem dependência do Mac. Integração Notion operacional neste snapshot.
+
+Validações: 52 testes determinísticos (14 piloto + 38 runtime), lint,
+typecheck da UI e `git diff --check` passaram. Nenhum teste enviou
+notificações. O E2E não valida Resend/Telegram/IFTTT/Alexa nesta etapa.
 
 ## Snapshot operacional — 2026-09-02
 
@@ -46,7 +204,8 @@ Esse erro motivou a migração para um `Dockerfile` explícito e a retirada do
 
 O primeiro runtime persistente usa um serviço de aplicação:
 
-- `neo-agent-react-runtime`: API autenticada, workers BullMQ e schedulers;
+- `neo-agent-react`: nome do serviço Railway que executa a API autenticada,
+  workers BullMQ e schedulers (identidade lógica `neo-agent-react-runtime`);
 - PostgreSQL: source of truth, no schema isolado `agent_runtime`;
 - Redis dedicado: transporte BullMQ e locks operacionais;
 - Notion: fonte humana read-only para a intenção semanal;
@@ -64,6 +223,12 @@ O `Dockerfile` na raiz define a imagem do worker. O serviço Railway define:
 - início com `pnpm start:worker-api`;
 - readiness em `/ready`;
 - restart `ON_FAILURE` e uma réplica inicial.
+
+Na revisão de publicação de 2026-09-03, a configuração consultada via API
+ainda declarava `build.builder = RAILPACK`, com fonte GitHub `main`. Isto
+não deve ser confundido com prova do builder efetivo: inspecionar os logs
+de cada build para confirmar o uso do Dockerfile versionado. Não alterar
+infraestrutura nem declarar migração de builder só com base neste documento.
 
 O campo **Railway Config File** deve permanecer vazio. O antigo Config as Code
 por `railway.json` foi removido porque está deprecated e não deve ser adotado
@@ -100,11 +265,10 @@ Notion:
 - `NOTION_API_KEY`
 - `NOTION_DATA_SOURCE_ID`
 - `NOTION_API_VERSION`
-- `NOTION_INTENTION_PROPERTY`
-- `NOTION_ACCEPTANCE_CRITERIA_PROPERTY`
-- `NOTION_CONSTRAINTS_PROPERTY`
-- `NOTION_STATUS_PROPERTY`
-- `NOTION_READY_VALUE`
+- `NOTION_POLLING_ENABLED` (default `false`; ativação explícita após E2E)
+
+O schema de propriedades é o contrato canônico de Tarefas & Ações descrito
+acima; as antigas variáveis de nomes de propriedades/Status não são usadas.
 
 Resend e Telegram:
 

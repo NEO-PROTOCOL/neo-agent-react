@@ -21,14 +21,19 @@ export const RelationKindSchema = z.enum([
 
 export const RawWeekIntentSchema = z.object({
   task_id: TaskIdSchema,
-  current_node: TaskIdSchema.default("neo-agent-react"),
+  current_node: TaskIdSchema.nullable().default("neo-agent-react"),
+  routing_status: z.enum(["RESOLVED", "UNRESOLVED"]).optional(),
+  intake_status: z.enum(["READY", "NEEDS_HUMAN"]).optional(),
+  intake_reasons: z.array(z.string()).optional(),
   intention: z.string().min(1),
-  acceptance_criteria: z.array(z.string().min(1)).min(1),
+  acceptance_criteria: z.array(z.string().min(1)),
   constraints: z.array(z.string().min(1)).default([]),
   source: z.object({
     type: z.enum(["manual", "notion"]),
     ref: z.string().min(1),
     revision: z.string().min(1).optional(),
+    execution_revision: z.string().optional(),
+    metadata: z.record(z.unknown()).optional(),
   }),
 });
 
@@ -254,7 +259,9 @@ export function stableChecksum(value) {
 }
 
 export function prepareWeekIntent(raw, now = () => new Date()) {
-  const parsed = RawWeekIntentSchema.parse(raw);
+  const parsed = RawWeekIntentSchema.parse(raw.source?.type === "notion"
+    ? { ...raw, current_node: raw.current_node ?? null }
+    : raw);
   const checksumPayload = {
     current_node: parsed.current_node,
     intention: parsed.intention,
@@ -262,6 +269,13 @@ export function prepareWeekIntent(raw, now = () => new Date()) {
     constraints: parsed.constraints,
     source: parsed.source,
   };
+  if (parsed.source.type === "notion") {
+    checksumPayload.source = {
+      type: parsed.source.type, ref: parsed.source.ref,
+      executable: parsed.source.metadata?.executable,
+    };
+    checksumPayload.routing_status = parsed.routing_status;
+  }
   return WeekIntentSchema.parse({
     ...parsed,
     source: {

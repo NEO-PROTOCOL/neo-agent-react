@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import pg from "pg";
+import { planNotionIngestion, planControlledRetry } from "./NotionIngestion.js";
 
 const { Pool } = pg;
 const TERMINAL_STATUSES = new Set(["APPROVED", "NEEDS_HUMAN", "REJECTED"]);
@@ -37,8 +38,8 @@ export class PostgresTaskStateStore {
     return true;
   }
 
-  async claimTask(intent) {
-    const result = await this.pool.query(
+  async claimTask(intent, client = this.pool) {
+    const result = await client.query(
       `INSERT INTO agent_runtime.tasks (
          task_id, source_type, source_ref, source_revision, source_checksum, intent
        ) VALUES ($1, $2, $3, $4, $5, $6::jsonb)
@@ -48,7 +49,7 @@ export class PostgresTaskStateStore {
         intent.task_id,
         intent.source.type,
         intent.source.ref,
-        intent.source.revision || null,
+        intent.source.execution_revision || intent.source.revision || null,
         intent.source.checksum_sha256,
         JSON.stringify(intent),
       ]
@@ -75,10 +76,71 @@ export class PostgresTaskStateStore {
     return Object.fromEntries(result.rows.map((row) => [row.record_key, row.payload]));
   }
 
-  async setContextField(taskId, key, value) {
+  async ingestNotionIntent(incoming) {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
+      await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [incoming.source.ref]);
+      const result = await client.query(
+        `SELECT t.intent, e.payload AS observation FROM agent_runtime.tasks t
+         JOIN agent_runtime.task_events e ON e.task_id = t.task_id
+         WHERE t.source_type = 'notion' AND t.source_ref = $1 AND e.record_key = 'source_observation'
+         ORDER BY e.sequence DESC LIMIT 1`, [incoming.source.ref]);
+      const transition = planNotionIngestion(incoming, result.rows[0]);
+      if (transition.claimed) {
+        const claimed = await this.claimTask(transition.intent, client);
+        if (!claimed) throw new Error("Notion execution revision conflict");
+        await this.setContextField(transition.intent.task_id, "intent", transition.intent, client);
+      }
+      if (transition.changed) {
+        if (transition.statusEvent) await this.setContextField(transition.intent.task_id, "notion_status_changed", transition.statusEvent, client);
+        await this.setContextField(transition.intent.task_id, "source_observation", transition.observation, client);
+      }
+      await client.query("COMMIT");
+      return transition;
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally { client.release(); }
+  }
+
+  async createControlledRetry(parentTaskId, requestId) {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const parent = (await client.query("SELECT intent FROM agent_runtime.tasks WHERE task_id = $1", [parentTaskId])).rows[0]?.intent;
+      if (!parent) throw new Error("Recovery parent not found");
+      await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [parent.source.ref]);
+      const events = await client.query(
+        "SELECT DISTINCT ON (record_key) record_key, payload FROM agent_runtime.task_events WHERE task_id = $1 ORDER BY record_key, sequence DESC",
+        [parentTaskId]);
+      const state = Object.fromEntries(events.rows.map((e) => [e.record_key, e.payload]));
+      const transition = planControlledRetry(parent, state, requestId);
+      if (state.controlled_retry_requested) {
+        if (state.controlled_retry_requested.request_id !== requestId) throw new Error("A controlled recovery already exists");
+        await client.query("COMMIT");
+        return { intent: transition.intent, claimed: false };
+      }
+      const latest = await client.query(
+        `SELECT t.task_id FROM agent_runtime.tasks t JOIN agent_runtime.task_events e ON e.task_id = t.task_id
+         WHERE t.source_ref = $1 AND e.record_key = 'source_observation' ORDER BY e.sequence DESC LIMIT 1`, [parent.source.ref]);
+      if (latest.rows[0]?.task_id !== parentTaskId) throw new Error("Source has a newer revision; recovery refused");
+      if (!await this.claimTask(transition.intent, client)) throw new Error("Recovery identity conflict");
+      const record = { ...transition.record, authorized_at: new Date().toISOString() };
+      await this.setContextField(transition.intent.task_id, "intent", transition.intent, client);
+      await this.setContextField(transition.intent.task_id, "controlled_retry", record, client);
+      await this.setContextField(transition.intent.task_id, "source_observation", transition.observation, client);
+      await this.setContextField(parentTaskId, "controlled_retry_requested", record, client);
+      await client.query("COMMIT");
+      return { intent: transition.intent, claimed: true };
+    } catch (error) { await client.query("ROLLBACK"); throw error; }
+    finally { client.release(); }
+  }
+
+  async setContextField(taskId, key, value, transactionClient) {
+    const client = transactionClient || await this.pool.connect();
+    try {
+      if (!transactionClient) await client.query("BEGIN");
       const task = await client.query(
         "SELECT task_id FROM agent_runtime.tasks WHERE task_id = $1 FOR UPDATE",
         [taskId]
@@ -140,12 +202,12 @@ export class PostgresTaskStateStore {
           WHERE task_id = $1`,
         [taskId, status, attempt]
       );
-      await client.query("COMMIT");
+      if (!transactionClient) await client.query("COMMIT");
     } catch (error) {
-      await client.query("ROLLBACK");
+      if (!transactionClient) await client.query("ROLLBACK");
       throw error;
     } finally {
-      client.release();
+      if (!transactionClient) client.release();
     }
   }
 

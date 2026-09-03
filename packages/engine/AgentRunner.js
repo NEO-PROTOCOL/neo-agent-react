@@ -1,12 +1,6 @@
 import { GeminiProviderAdapter } from "./providers/GeminiProviderAdapter.js";
 import { ProviderRegistry } from "./providers/ProviderRegistry.js";
-
-// Strips markdown code fences that models sometimes emit despite JSON mode
-function extractJson(raw) {
-  const trimmed = raw.trim();
-  const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]+?)\s*```$/);
-  return fenced ? fenced[1] : trimmed;
-}
+import { parseStructuredOutput } from "./StructuredOutput.js";
 
 export class AgentRunner {
   constructor({ providerRegistry } = {}) {
@@ -84,12 +78,10 @@ ${systemConfig.constraints.map((c) => `- ${c}`).join("\n")}
     const rawResponse = response.text || "";
 
     if (systemConfig.outputType === "json") {
-      const cleaned = extractJson(rawResponse);
-      try {
-        return JSON.parse(cleaned);
-      } catch {
-        throw new Error("Falha: provider nao retornou JSON valido");
-      }
+      return parseStructuredOutput(response, {
+        nodeId: agentConfig.id, provider: providerAdapter.id, model,
+        maxTokens: config.maxTokens, schema: systemConfig.outputSchema,
+      }, runtime.recordDiagnostic);
     }
 
     return { text: rawResponse };

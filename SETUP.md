@@ -6,7 +6,11 @@ Este documento estabelece as instruções canônicas de configuração, execuç�
 
 * **Node.js:** `>= 22.22.0`
 * **Gerenciador de Pacotes:** `pnpm >= 11.24.0` (gerenciado via `corepack enable`)
-* **Docker & Docker Compose:** Necessário para o serviço de infraestrutura Redis local
+- **Operação produtiva:** Railway com PostgreSQL e Redis dedicados ao runtime.
+  Nenhum processo, banco ou Docker no Mac é necessário para mantê-lo ativo.
+- **Desenvolvimento local opcional:** PostgreSQL e Redis de desenvolvimento,
+  separados da produção. O Compose legado fornece Redis, mas não provisiona
+  PostgreSQL nem a autenticação atual da API.
 
 ## 2. Preparação do Ambiente (Bootstrap)
 
@@ -23,30 +27,26 @@ O comando acima executa:
 
 ## 3. Variáveis de Ambiente
 
-Crie o arquivo `.env` na raiz ou configure as variáveis no seu ambiente de execução:
+Configure as variáveis no ambiente autorizado, sem registrar valores no Git:
 
-```bash
-# Conexão de Mensageria e Contexto de Execução
-REDIS_URL=redis://localhost:6379
+- Runtime: `DATABASE_URL`, `REDIS_URL`, `RUNTIME_API_KEY`, `GEMINI_API_KEY`.
+- Modelo: `PILOT_PROVIDER`, `PILOT_MODEL`; modelo do E2E datado:
+  `gemini-3.8-flash`. Modelo configurado não é garantia de disponibilidade.
+- Discovery: `NEO_ORCHESTRATOR_URL`, usando
+  `https://orchestrator.neoprotocol.space`, e `CONTEXT_SOURCE_GITHUB_TOKEN`
+  para fontes privadas autorizadas.
+- Notion: `NOTION_API_KEY`, `NOTION_DATA_SOURCE_ID`, `NOTION_API_VERSION`,
+  `NOTION_POLLING_ENABLED`. Compartilhar a fonte com a integração.
+- Listener/UI de desenvolvimento: `PORT`, `HOST`, `WORKER_BASE_URL`.
 
-# Porta do Worker HTTP API
-PORT=4001
+O runtime não carrega `.env` automaticamente. Se o operador optar por arquivo
+local autorizado, usar `node --env-file=../../.env server.js` dentro de
+`services/worker`. Agentes não devem ler, editar ou versionar esse arquivo.
+Prefira ambiente já configurado e `pnpm start:worker-api`.
 
-# URL de integração entre UI e Worker
-WORKER_BASE_URL=http://localhost:4001
-
-# Provedores de IA (obrigatório para execuções cognitivas e piloto semanal)
-GEMINI_API_KEY=sua_chave_aqui
-
-# Configurações do Piloto Semanal Local (opcional)
-PILOT_PROVIDER=gemini
-PILOT_MODEL=gemini-3.5-flash-lite
-NEO_AGENT_RUNTIME_ROOT=/Users/nettomello/neomello/neo-agent-runtime/neo-agent-runtime
-
-# Discovery cross-node antes do Operator
-NEO_ORCHESTRATOR_URL=http://localhost:8080
-CONTEXT_SOURCE_GITHUB_TOKEN=
-```
+`HOST=127.0.0.1` é somente local; Railway usa `0.0.0.0` por default.
+`NEO_AGENT_RUNTIME_ROOT` não é necessário para rodar: a doutrina está
+empacotada. Esse caminho só participa de reconstrução explícita do bundle.
 
 > [!WARNING]
 > Nunca comite valores reais de chaves de API ou segredos. Mantenha `.env` no `.gitignore`.
@@ -78,6 +78,10 @@ CONTEXT_SOURCE_GITHUB_TOKEN=
 | `make reset` | Reset local sem remover lockfile/node_modules |
 | `make repair` | Manutenção Nível 1: limpa e reinstala o `node_modules` |
 
+Os alvos Docker/Redis são legados de desenvolvimento, não um provisionamento
+completo do runtime atual. Não executar `make repair`, `make reset` ou
+instalações isoladas de subpackages como diagnóstico automático.
+
 ### Scripts do Package.json
 
 * `pnpm dev`: Inicia o canvas-ui em modo de desenvolvimento.
@@ -86,46 +90,68 @@ CONTEXT_SOURCE_GITHUB_TOKEN=
 * `pnpm start:worker-api`: Inicia a API HTTP do worker.
 * `pnpm test`: Executa todos os testes unitários (`test:pilot` e `test:runtime`).
 * `pnpm test:pilot`: Executa os testes do `PilotLoop`.
-* `pnpm pilot:run`: Executa uma tarefa de teste no loop do piloto.
+- `pnpm db:migrate`: Aplica migrations no PostgreSQL configurado; exige
+  autorização sobre o banco de destino.
+- `pnpm pilot:run`: Trigger HTTP autenticado; retorna `202`. `--wait`
+  consulta a aprovação persistida. Não é o papel Operator.
 
 ## 5. Fluxos de Desenvolvimento
 
-### Modo Híbrido Recomendado
+### Desenvolvimento opcional
 
-1. Em um terminal, inicie a infraestrutura:
+Após configurar bancos de desenvolvimento e variáveis, aplicar
+`pnpm db:migrate` no banco autorizado e iniciar `pnpm start:worker-api`.
+Em terminal separado, `make ui` inicia a UI em `http://localhost:3000`;
+a API usa porta 4001 por default. Isso não valida o E2E da UI em produção.
 
-   ```bash
-   make infra-up
-   ```
-
-2. Inicie a API do Worker:
-
-   ```bash
-   make worker-api
-   ```
-
-3. Em outro terminal, inicie a interface de usuário:
-
-   ```bash
-   make ui
-   ```
-
-A interface estará acessível em `http://localhost:3000` e o Worker em `http://localhost:4001`.
-
-### Execução do Piloto Semanal Local
+### Trigger manual do loop
 
 O worker consulta `NEO_ORCHESTRATOR_URL` antes do Operator, recupera somente
 as fontes selecionadas e persiste `discovery` e `task_context` no state store.
 Sem Orchestrator disponível, uma tarefa que dependa de contexto cross-node é
 encaminhada pelo Guardian como `NEEDS_HUMAN`.
 
-Para rodar o ciclo autônomo de agentes (`Operator -> Planner -> Executor -> Reviewer -> Guardian`):
+Com `RUNTIME_API_KEY` já disponível no ambiente, usar o exemplo versionado
+com um task ID ainda não utilizado no ambiente de teste:
 
 ```bash
-pnpm pilot:run -- --input /caminho/para/week-task.json
+pnpm pilot:run -- --input examples/week-task.json --wait
 ```
+
+O destino default é `http://127.0.0.1:4001`; para um runtime remoto
+autorizado, informar `--base-url`. Não passar secrets em `--api-key` nem
+reexecutar tarefas produtivas apenas para testar documentação.
+
+### Notion em produção
+
+A ingestão ocorre exclusivamente pelo adapter read-only da fonte oficial
+**✅ Tarefas & Ações**, com `Incluir no Agent = true`. Não enviar uma origem
+Notion fabricada pelo trigger genérico. Polling manual usa
+`POST /sources/notion/poll`, Bearer `RUNTIME_API_KEY`, e body opcional
+`{"page_id":"ID_DA_PAGINA"}`; resposta `202` identifica o job, não aprovação.
+
+Contrato, schema, critérios obrigatórios, Status-only, revisão/dedupe e
+reprocessamento controlado estão em [RAILWAY_DEPLOY.md](./RAILWAY_DEPLOY.md).
+O polling contínuo (`NOTION_POLLING_ENABLED`) permanece desligado por
+default; a ativação produtiva foi autorizada após o E2E de 2026-09-03.
+
+### Validação determinística
+
+```bash
+env -u IFTTT_WEBHOOK_KEY pnpm test
+pnpm lint
+pnpm --dir apps/canvas-ui exec tsc --noEmit
+git diff --check
+```
+
+O `env -u` isola o teste de uma configuração IFTTT herdada do shell;
+nenhuma credencial é lida/exibida, nenhum envio real é realizado.
 
 ## 6. Contrato de Deploy e Limitações
 
 * **Deploy em Produção:** Consulte `RAILWAY_DEPLOY.md` para instruções de deploy dos serviços independentes.
 * **Isolamento de Estado:** UI e Worker não compartilham arquivos em produção; toda sincronização ocorre via HTTP e Redis Pub/Sub.
+- **Fonte de verdade:** PostgreSQL (`agent_runtime`), incluindo eventos e
+  approvals. Redis não substitui o ledger.
+- **Recuperação:** não apagar eventos nem resetar tasks `NEEDS_HUMAN`.
+  Nova tentativa controlada requer autorização e preserva a anterior.

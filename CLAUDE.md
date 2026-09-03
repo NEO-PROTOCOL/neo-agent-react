@@ -4,13 +4,20 @@
 
 Este arquivo serve como contexto de inicialização para agentes Claude ou interfaces associadas atuando na manutenção ou expansão deste repositório.
 
-### Comandos Frequentes:
+Leia `AGENTS.md` primeiro. Ele concentra os invariantes de Notion,
+discovery, persistência append-only, parsing estrito e safe commit/push.
+Use `SETUP.md` para comandos; não reconstruir o piloto Redis-only antigo.
 
-* **Iniciar Todo o Ambiente (Dev):** `make bootstrap` seguido de `make docker-up`.
-* **Rodar Worker Local:** `make worker-api` (porta: 4001).
-* **Rodar Frontend:** `make ui` (porta: 3000).
+### Comandos Frequentes
 
-*Atenção: A execução paralela exige que os serviços tenham o Redis já disponível para o trânsito pub/sub dos agentes NEO.*
+- Instalar dependências: `make bootstrap`, na raiz deste repo.
+- Testes: `pnpm test`; lint: `pnpm lint`.
+- Tipagem: `pnpm --dir apps/canvas-ui exec tsc --noEmit`.
+- API: `pnpm start:worker-api`, com ambiente autorizado e bancos configurados.
+- Frontend de desenvolvimento: `make ui` (porta 3000).
+
+Docker local não é necessário para operar o Railway. O Compose legado não
+provisiona PostgreSQL/autenticação do runtime persistente e não é um E2E.
 
 ## Runtime Persistente
 
@@ -26,3 +33,8 @@ Não troque os comandos de função:
 Não leve `HOST=127.0.0.1`, caminhos absolutos do Mac ou valores de secrets para
 o runtime Railway. Deploy `SUCCESS`, `/ready` saudável e E2E real são gates
 distintos e devem ser reportados separadamente.
+
+O snapshot de 2026-09-03 em `RAILWAY_DEPLOY.md` comprova Notion → Approval,
+Status-only sem reexecução, restart e polling automático idempotente.
+Preserve as tentativas históricas `NEEDS_HUMAN`; recovery exige autorização
+e nova tentativa vinculada, nunca reset ou sobrescrita.

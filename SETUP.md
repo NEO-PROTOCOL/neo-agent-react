@@ -155,3 +155,119 @@ nenhuma credencial é lida/exibida, nenhum envio real é realizado.
   approvals. Redis não substitui o ledger.
 - **Recuperação:** não apagar eventos nem resetar tasks `NEEDS_HUMAN`.
   Nova tentativa controlada requer autorização e preserva a anterior.
+
+## 7. Uso diário e limites
+
+### Para que usar agora
+
+O sistema acompanha tarefas autorizadas na fonte Notion, mesmo com o Mac
+desligado. Seu Executor produz texto estruturado, com revisão e evidências;
+não executa livremente ações nos sistemas do ecossistema.
+
+| Entrada na propriedade Descrição | Entrega compatível com o Executor |
+| --- | --- |
+| Anotações fornecidas de reunião | Resumo e checklist das ações mencionadas |
+| Demanda pequena, com objetivo e restrições | Plano curto em Markdown |
+| Informações de uma comunicação | Rascunho de mensagem ou briefing |
+| Procedimento fornecido em texto | Checklist de conferência |
+
+São exemplos de uso compatível, não quatro E2Es produtivos já comprovados.
+A prova produtiva datada gerou exatamente `- [ ] Revisar backlog`.
+Discovery pode recuperar fontes mapeadas e autorizadas; isso não concede
+acesso geral aos projetos nem comprova integrações ou estado ao vivo.
+
+### Preparar uma tarefa
+
+1. Criar a tarefa em **✅ Tarefas & Ações**.
+2. Selecionar Organização e Projeto com correspondência real no registry.
+   Não escolher `neo-agent-react` apenas para contornar routing pendente.
+3. Colocar o contexto necessário na propriedade **Descrição**, não apenas
+   no corpo da página ou em comentários: esses conteúdos não são lidos pelo
+   adapter atual.
+4. Definir critérios verificáveis e restrições. Só marcar **Incluir no Agent**
+   quando o conteúdo estiver pronto para processamento.
+
+Exemplo de Descrição para uma tarefa de formatação:
+
+```text
+Contexto:
+Ações fornecidas: Revisar backlog; Identificar bloqueios.
+Converter somente essas duas ações em checklist Markdown.
+
+Critérios de aceite:
+- O artefato contém exatamente duas linhas.
+- A primeira linha é: - [ ] Revisar backlog
+- A segunda linha é: - [ ] Identificar bloqueios
+
+Restrições:
+- Não acrescentar ações, responsáveis, datas ou informações.
+- Não usar ferramentas externas nem alterar qualquer sistema.
+```
+
+### Datas e mudanças humanas
+
+- **Data Planejada e Data Limite não agendam nem adiam a execução.** Com o
+  checkbox ligado, a tarefa pode entrar no próximo polling, mesmo com data
+  futura. O ciclo nominal é de 10 minutos, sujeito à fila/disponibilidade.
+- Datas e prioridade orientam o conteúdo; prioridade não reordena a fila.
+  Alterações nesses campos compõem uma nova revisão processável.
+- Mudança apenas de Status gera evento operacional e atualiza contexto,
+  sem nova execução. Status `Concluído` não impede a seleção pelo checkbox.
+- Desmarcar o checkbox impede novas seleções; não cancela trabalho já
+  enfileirado ou em execução.
+- Falta de critérios ou routing não comprovado exige atenção humana;
+  não autoriza o agente a inventar critérios ou um projeto de fallback.
+
+### Onde consultar o resultado
+
+O adapter não escreve no Notion: não devolve o artefato à página e não muda
+seu Status. O resultado e a aprovação ficam no PostgreSQL, acessíveis pela
+API autenticada do runtime. Notion page ID e runtime task ID são distintos;
+uma mesma página pode ter várias revisões/tentativas históricas.
+
+- Consulta read-only: `GET /pilot/tasks/{task_id}`.
+- Autenticação: header `Authorization: Bearer`, usando `RUNTIME_API_KEY`
+  já disponível no ambiente autorizado, nunca na URL ou em logs.
+- Resposta: `{ task_id, state }`; `state.approval` contém a decisão final.
+- O artefato fica em `state.execution_1.action.output.markdown` ou
+  `state.execution_2.action.output.markdown`, conforme o `review_ref` da
+  aprovação (`review_1` ou `review_2`). Não escolher a tentativa 1 cegamente.
+- Sem aprovação, o processamento pode estar pendente/em andamento; uma saída
+  intermediária não deve ser apresentada como aprovada. Uma tarefa bloqueada
+  pode não ter artefato nem `review_ref`.
+
+Para um trigger manual, o `task_id` vem na resposta `202` e `--wait` consulta
+o estado. No polling Notion, `202` retorna apenas o `job_id`; um operador
+autorizado pode localizar as tentativas da página com esta consulta read-only
+no PostgreSQL (substituir somente o page ID confirmado):
+
+```sql
+SELECT task_id, status, source_revision, created_at
+FROM agent_runtime.tasks
+WHERE source_type = 'notion'
+  AND source_ref = 'notion:PAGE_ID_CONFIRMADO'
+ORDER BY created_at DESC;
+```
+
+Preservar e distinguir as tentativas: uma aprovação nova não apaga os
+`NEEDS_HUMAN` anteriores. A API acima retorna o contexto por chave; o
+histórico completo permanece no ledger `agent_runtime.task_events`.
+
+### O que Approval não significa
+
+`APPROVED` significa que o artefato passou pelo Reviewer e pelas regras do
+Guardian para aquela revisão e escopo. Não é aprovação humana, garantia de
+verdade factual nem confirmação de uma ação externa concluída.
+`NEEDS_HUMAN` interrompe a automação e preserva a causa para análise;
+não é resolvido automaticamente mudando o Status no Notion.
+
+O runtime atual não edita código, faz push/deploy, publica conteúdo,
+efetua pagamentos ou acompanha e-mails/reuniões fora da fonte autorizada.
+Uma tarefa "enviar mensagem" pode gerar um rascunho, não enviá-lo pelo
+Executor. Canais de notificação são transportes separados, não tools dele.
+
+Resend/Telegram/IFTTT e memória opcional têm validação independente.
+`configured` não significa entregue; `APPROVED` não prova notificação.
+Consultar o snapshot datado e revalidar antes de prometer qualquer canal.
+Não apresentar o sistema como assistente que observa todo o trabalho do
+operador, nem como memória transversal já comprovada.

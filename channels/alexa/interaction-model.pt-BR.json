@@ -1,0 +1,31 @@
+{
+  "interactionModel": {
+    "languageModel": {
+      "invocationName": "neo assistente",
+      "intents": [
+        { "name": "AMAZON.CancelIntent", "samples": [] },
+        { "name": "AMAZON.HelpIntent", "samples": [] },
+        { "name": "AMAZON.StopIntent", "samples": [] },
+        { "name": "AMAZON.FallbackIntent", "samples": [] },
+        {
+          "name": "ConversationIntent",
+          "slots": [{ "name": "query", "type": "AMAZON.SearchQuery" }],
+          "samples": ["pergunte {query}", "consulte {query}", "me diga {query}"]
+        }
+      ],
+      "types": []
+    },
+    "dialog": {
+      "delegationStrategy": "SKILL_RESPONSE",
+      "intents": [{
+        "name": "ConversationIntent",
+        "confirmationRequired": false,
+        "slots": [{ "name": "query", "type": "AMAZON.SearchQuery",
+          "elicitationRequired": true, "confirmationRequired": false,
+          "prompts": { "elicitation": "Elicit.Query" } }]
+      }]
+    },
+    "prompts": [{ "id": "Elicit.Query", "variations": [{ "type": "PlainText",
+      "value": "Qual informação da tarefa você quer consultar?" }] }]
+  }
+}

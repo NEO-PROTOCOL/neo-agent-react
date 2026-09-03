@@ -10,6 +10,9 @@ import {
 } from "./lib/NotificationProviders.js";
 import { PostgresTaskStateStore } from "./lib/PostgresTaskStateStore.js";
 import { RuntimeCoordinator } from "./lib/RuntimeCoordinator.js";
+import { alexaConfig, alexaResponse, isAlexaRoute, registerAlexaChannel } from "./lib/AlexaChannel.js";
+import { ConversationGateway } from "./lib/ConversationGateway.js";
+import { PostgresConversationStore } from "./lib/PostgresConversationStore.js";
 
 const TASK_ID_PATTERN = /^[a-zA-Z0-9_-]{1,128}$/;
 const runtimeApiKey = process.env.RUNTIME_API_KEY;
@@ -18,6 +21,11 @@ if (!runtimeApiKey) throw new Error("RUNTIME_API_KEY is required");
 
 const app = Fastify({ logger: true, bodyLimit: 512 * 1024 });
 const store = new PostgresTaskStateStore();
+const alexa = alexaConfig();
+const conversationStore = new PostgresConversationStore({ pool: store.pool,
+  retentionDays: Number(process.env.CONVERSATION_RETENTION_DAYS || 7) });
+const conversationGateway = new ConversationGateway({ store: conversationStore,
+  taskIds: alexa.taskIds, respond: alexaResponse });
 const notion = new NotionSourceAdapter();
 const providerRegistry = new NotificationProviderRegistry([
   new ResendProvider(),
@@ -31,6 +39,7 @@ const runtime = new RuntimeCoordinator({
   notificationRouter,
   providerRegistry,
   logger: app.log,
+  conversationStore,
 });
 
 function authorized(header) {
@@ -41,19 +50,30 @@ function authorized(header) {
 }
 
 app.addHook("onRequest", async (request, reply) => {
+  // Only the registered raw-body Alexa route has this server-owned flag.
+  // It verifies Amazon signatures, application ID and the development user itself.
+  if (isAlexaRoute(request)) return;
   if (["/live", "/ready", "/health"].includes(request.url.split("?")[0])) return;
   if (!authorized(request.headers.authorization)) {
     return reply.code(401).send({ error: "unauthorized" });
   }
 });
 
+const alexaChannel = await registerAlexaChannel(app, {
+  config: alexa, gateway: conversationGateway, store: conversationStore,
+});
+async function readiness() {
+  const [health, alexaHealth] = await Promise.all([runtime.isReady(), alexaChannel.health()]);
+  return { ...health, ok: health.ok && alexaHealth !== "unavailable", alexa: alexaHealth };
+}
+
 app.get("/live", async () => ({ ok: true, service: "neo-agent-react-runtime" }));
 app.get("/ready", async (_request, reply) => {
-  const health = await runtime.isReady();
+  const health = await readiness();
   return reply.code(health.ok ? 200 : 503).send(health);
 });
 app.get("/health", async (_request, reply) => {
-  const health = await runtime.isReady();
+  const health = await readiness();
   return reply.code(health.ok ? 200 : 503).send(health);
 });
 

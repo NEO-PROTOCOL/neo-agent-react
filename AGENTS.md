@@ -20,6 +20,11 @@ Ordem de leitura: este arquivo → `README.md` (conceito) → `SETUP.md`
 Não há `CONTEXT.md`, `MEMORY.md`, `SKILL.md` ou `.codex` próprios deste repo;
 use a hierarquia superior e este handoff, sem criar cópias por padrão.
 
+Para orientar o operador sobre capacidades atuais, leia também
+[Uso diário e limites](./SETUP.md#7-uso-diário-e-limites).
+Essa seção explica tarefas adequadas, datas, consulta de resultados e o
+significado de Approval. Não apresentar capacidade possível como E2E provado.
+
 Antes de diagnosticar, alterar ou publicar o runtime persistente:
 
 1. Leia `RAILWAY_DEPLOY.md`, inclusive o snapshot operacional datado.

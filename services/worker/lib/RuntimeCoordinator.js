@@ -39,6 +39,7 @@ export class RuntimeCoordinator {
     notion,
     notificationRouter,
     providerRegistry,
+    conversationStore,
     redisUrl = process.env.REDIS_URL,
     logger = console,
     timezone = process.env.AGENT_TIMEZONE || "America/Sao_Paulo",
@@ -48,6 +49,7 @@ export class RuntimeCoordinator {
     this.notion = notion;
     this.notificationRouter = notificationRouter;
     this.providerRegistry = providerRegistry;
+    this.conversationStore = conversationStore;
     this.logger = logger;
     this.timezone = timezone;
     this.now = now;
@@ -119,6 +121,10 @@ export class RuntimeCoordinator {
       })
     );
     await Promise.all([
+      this.conversationStore ? this.runQueue.upsertJobScheduler(
+        "conversation-cleanup", { every: 60 * 60 * 1000 },
+        { name: "conversation-cleanup", data: {} }
+      ) : Promise.resolve(),
       this.notionPollingEnabled ? this.runQueue.upsertJobScheduler(
         "notion-poll",
         { every: 10 * 60 * 1000 },
@@ -239,6 +245,10 @@ export class RuntimeCoordinator {
   }
 
   async #processRuntimeJob(job) {
+    if (job.name === "conversation-cleanup") {
+      await this.conversationStore?.purgeExpired();
+      return { status: "conversation_retention_applied" };
+    }
     if (job.name === "run-task") {
       const intent = await this.store.getIntent(job.data.taskId);
       if (!intent) throw new Error(`Persisted intent not found: ${job.data.taskId}`);

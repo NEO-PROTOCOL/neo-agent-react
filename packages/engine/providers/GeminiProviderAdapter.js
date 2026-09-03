@@ -3,13 +3,13 @@ import { ProviderAdapter } from "./ProviderAdapter.js";
 
 const DEFAULT_TIMEOUT_MS = 60_000;
 
-function withTimeout(promise, ms, label) {
-  return Promise.race([
-    promise,
-    new Promise((_, reject) =>
-      setTimeout(() => reject(new Error(`Timeout apos ${ms}ms: ${label}`)), ms)
-    ),
-  ]);
+async function withTimeout(promise, ms, label) {
+  let timer;
+  try {
+    return await Promise.race([promise, new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`Timeout apos ${ms}ms: ${label}`)), ms);
+    })]);
+  } finally { clearTimeout(timer); }
 }
 
 export class GeminiProviderAdapter extends ProviderAdapter {
@@ -32,6 +32,7 @@ export class GeminiProviderAdapter extends ProviderAdapter {
     executeTool,
     maxToolCalls = 5,
     timeoutMs = DEFAULT_TIMEOUT_MS,
+    signal,
   }) {
     if (!this.client) throw new Error("Provider gemini nao configurado");
 
@@ -49,7 +50,7 @@ export class GeminiProviderAdapter extends ProviderAdapter {
 
     for (let iteration = 0; iteration < maxToolCalls + 1; iteration += 1) {
       const { response } = await withTimeout(
-        providerModel.generateContent({ contents, generationConfig }),
+        providerModel.generateContent({ contents, generationConfig }, { signal, timeout: timeoutMs }),
         timeoutMs,
         "generateContent"
       );

@@ -11,6 +11,8 @@
   },
   "dependencies": {
     "@neo/engine": "file:../../packages/engine",
+    "ask-sdk-core": "2.14.0",
+    "ask-sdk-express-adapter": "2.14.0",
     "bullmq": "^5.58.5",
     "fastify": "^5.2.1",
     "ioredis": "^5.7.0",

@@ -156,4 +156,11 @@ const dbWriteSkill = defineSkill({
   },
 });
 
-export const BUILTIN_SKILLS = [webSearchSkill, httpRequestSkill, dbWriteSkill];
+import { MACOS_SKILLS } from "./macos.js";
+
+export const BUILTIN_SKILLS = [
+  webSearchSkill,
+  httpRequestSkill,
+  dbWriteSkill,
+  ...MACOS_SKILLS,
+];

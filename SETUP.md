@@ -6,9 +6,11 @@ Este documento estabelece as instruções canônicas de configuração, execuç�
 
 * **Node.js:** `>= 22.22.0`
 * **Gerenciador de Pacotes:** `pnpm >= 11.24.0` (gerenciado via `corepack enable`)
-- **Operação produtiva:** Railway com PostgreSQL e Redis dedicados ao runtime.
+
+* **Operação produtiva:** Railway com PostgreSQL e Redis dedicados ao runtime.
   Nenhum processo, banco ou Docker no Mac é necessário para mantê-lo ativo.
-- **Desenvolvimento local opcional:** PostgreSQL e Redis de desenvolvimento,
+
+* **Desenvolvimento local opcional:** PostgreSQL e Redis de desenvolvimento,
   separados da produção. O Compose legado fornece Redis, mas não provisiona
   PostgreSQL nem a autenticação atual da API.
 
@@ -29,15 +31,15 @@ O comando acima executa:
 
 Configure as variáveis no ambiente autorizado, sem registrar valores no Git:
 
-- Runtime: `DATABASE_URL`, `REDIS_URL`, `RUNTIME_API_KEY`, `GEMINI_API_KEY`.
-- Modelo: `PILOT_PROVIDER`, `PILOT_MODEL`; modelo do E2E datado:
+* Runtime: `DATABASE_URL`, `REDIS_URL`, `RUNTIME_API_KEY`, `GEMINI_API_KEY`.
+* Modelo: `PILOT_PROVIDER`, `PILOT_MODEL`; modelo do E2E datado:
   `gemini-3.8-flash`. Modelo configurado não é garantia de disponibilidade.
-- Discovery: `NEO_ORCHESTRATOR_URL`, usando
+* Discovery: `NEO_ORCHESTRATOR_URL`, usando
   `https://orchestrator.neoprotocol.space`, e `CONTEXT_SOURCE_GITHUB_TOKEN`
   para fontes privadas autorizadas.
-- Notion: `NOTION_API_KEY`, `NOTION_DATA_SOURCE_ID`, `NOTION_API_VERSION`,
+* Notion: `NOTION_API_KEY`, `NOTION_DATA_SOURCE_ID`, `NOTION_API_VERSION`,
   `NOTION_POLLING_ENABLED`. Compartilhar a fonte com a integração.
-- Listener/UI de desenvolvimento: `PORT`, `HOST`, `WORKER_BASE_URL`.
+* Listener/UI de desenvolvimento: `PORT`, `HOST`, `WORKER_BASE_URL`.
 
 O runtime não carrega `.env` automaticamente. Se o operador optar por arquivo
 local autorizado, usar `node --env-file=../../.env server.js` dentro de
@@ -90,9 +92,11 @@ instalações isoladas de subpackages como diagnóstico automático.
 * `pnpm start:worker-api`: Inicia a API HTTP do worker.
 * `pnpm test`: Executa todos os testes unitários (`test:pilot` e `test:runtime`).
 * `pnpm test:pilot`: Executa os testes do `PilotLoop`.
-- `pnpm db:migrate`: Aplica migrations no PostgreSQL configurado; exige
+
+* `pnpm db:migrate`: Aplica migrations no PostgreSQL configurado; exige
   autorização sobre o banco de destino.
-- `pnpm pilot:run`: Trigger HTTP autenticado; retorna `202`. `--wait`
+
+* `pnpm pilot:run`: Trigger HTTP autenticado; retorna `202`. `--wait`
   consulta a aprovação persistida. Não é o papel Operator.
 
 ## 5. Fluxos de Desenvolvimento
@@ -121,6 +125,20 @@ pnpm pilot:run -- --input examples/week-task.json --wait
 O destino default é `http://127.0.0.1:4001`; para um runtime remoto
 autorizado, informar `--base-url`. Não passar secrets em `--api-key` nem
 reexecutar tarefas produtivas apenas para testar documentação.
+
+### Operação Local com Skills do macOS
+
+O engine (`packages/engine/skills/macos.js`) inclui skills nativas para interação direta com o sistema operacional:
+
+* **Calendário**: leitura de eventos (`macos_list_calendar_events`) e criação de blocos de foco (`macos_create_calendar_event`).
+* **Lembretes**: leitura de pendências (`macos_list_reminders`) e criação de alarmes (`macos_create_reminder`).
+* **Cognitivo**: descompressão de tarefas em blocos de 30 minutos com intervalos (`macos_task_chunker`).
+
+Para validar a integração nativa das skills localmente:
+
+```bash
+node --test packages/engine/skills/macos.test.js
+```
 
 ### Notion em produção
 
@@ -151,9 +169,11 @@ nenhuma credencial é lida/exibida, nenhum envio real é realizado.
 
 * **Deploy em Produção:** Consulte `RAILWAY_DEPLOY.md` para instruções de deploy dos serviços independentes.
 * **Isolamento de Estado:** UI e Worker não compartilham arquivos em produção; toda sincronização ocorre via HTTP e Redis Pub/Sub.
-- **Fonte de verdade:** PostgreSQL (`agent_runtime`), incluindo eventos e
+
+* **Fonte de verdade:** PostgreSQL (`agent_runtime`), incluindo eventos e
   approvals. Redis não substitui o ledger.
-- **Recuperação:** não apagar eventos nem resetar tasks `NEEDS_HUMAN`.
+
+* **Recuperação:** não apagar eventos nem resetar tasks `NEEDS_HUMAN`.
   Nova tentativa controlada requer autorização e preserva a anterior.
 
 ## 7. Uso diário e limites
@@ -206,16 +226,16 @@ Restrições:
 
 ### Datas e mudanças humanas
 
-- **Data Planejada e Data Limite não agendam nem adiam a execução.** Com o
+* **Data Planejada e Data Limite não agendam nem adiam a execução.** Com o
   checkbox ligado, a tarefa pode entrar no próximo polling, mesmo com data
   futura. O ciclo nominal é de 10 minutos, sujeito à fila/disponibilidade.
-- Datas e prioridade orientam o conteúdo; prioridade não reordena a fila.
+* Datas e prioridade orientam o conteúdo; prioridade não reordena a fila.
   Alterações nesses campos compõem uma nova revisão processável.
-- Mudança apenas de Status gera evento operacional e atualiza contexto,
+* Mudança apenas de Status gera evento operacional e atualiza contexto,
   sem nova execução. Status `Concluído` não impede a seleção pelo checkbox.
-- Desmarcar o checkbox impede novas seleções; não cancela trabalho já
+* Desmarcar o checkbox impede novas seleções; não cancela trabalho já
   enfileirado ou em execução.
-- Falta de critérios ou routing não comprovado exige atenção humana;
+* Falta de critérios ou routing não comprovado exige atenção humana;
   não autoriza o agente a inventar critérios ou um projeto de fallback.
 
 ### Onde consultar o resultado
@@ -225,14 +245,14 @@ seu Status. O resultado e a aprovação ficam no PostgreSQL, acessíveis pela
 API autenticada do runtime. Notion page ID e runtime task ID são distintos;
 uma mesma página pode ter várias revisões/tentativas históricas.
 
-- Consulta read-only: `GET /pilot/tasks/{task_id}`.
-- Autenticação: header `Authorization: Bearer`, usando `RUNTIME_API_KEY`
+* Consulta read-only: `GET /pilot/tasks/{task_id}`.
+* Autenticação: header `Authorization: Bearer`, usando `RUNTIME_API_KEY`
   já disponível no ambiente autorizado, nunca na URL ou em logs.
-- Resposta: `{ task_id, state }`; `state.approval` contém a decisão final.
-- O artefato fica em `state.execution_1.action.output.markdown` ou
+* Resposta: `{ task_id, state }`; `state.approval` contém a decisão final.
+* O artefato fica em `state.execution_1.action.output.markdown` ou
   `state.execution_2.action.output.markdown`, conforme o `review_ref` da
   aprovação (`review_1` ou `review_2`). Não escolher a tentativa 1 cegamente.
-- Sem aprovação, o processamento pode estar pendente/em andamento; uma saída
+* Sem aprovação, o processamento pode estar pendente/em andamento; uma saída
   intermediária não deve ser apresentada como aprovada. Uma tarefa bloqueada
   pode não ter artefato nem `review_ref`.
 

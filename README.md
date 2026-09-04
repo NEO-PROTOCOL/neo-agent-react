@@ -70,6 +70,15 @@ explícito do loop. Polling e revisões Notion seguem o contrato em
 `PILOT_MODEL` seleciona o modelo do adapter sem alterar o `PilotLoop`.
 O Guardian permite no máximo uma repetição e bloqueia efeitos externos.
 
+### Skills Nativas de Sistema (macOS)
+
+Disponíveis em `packages/engine/skills/macos.js` para suporte operacional local e descompressão de tarefas:
+
+- `macos_list_calendar_events`: Consulta compromissos e mapeia janelas livres de foco.
+- `macos_create_calendar_event`: Cria blocos de foco protegido no Calendário do macOS.
+- `macos_list_reminders` / `macos_create_reminder`: Integração com o app Lembretes para descarga de memória de trabalho.
+- `macos_task_chunker`: Divide tarefas complexas de desenvolvimento em micro-passos executáveis com pausas planejadas.
+
 ────────────────────────────────────────
 
 ## ◬ Contrato de Runtime

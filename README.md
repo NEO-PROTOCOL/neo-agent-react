@@ -35,6 +35,7 @@ neo-agent-react/
 │   └── worker/             # API/runner HTTP do worker
 ├── docker-compose.yml      # stack local separada
 ├── Makefile                # comandos operacionais
+├── MANUAL_DE_USO.md        # uso diário pelo operador
 └── RAILWAY_DEPLOY.md       # contrato de deploy Railway
 ```
 
@@ -43,6 +44,9 @@ neo-agent-react/
 ## ⨷ Execução Local
 
 Consulte o [SETUP.md](./SETUP.md) para detalhes completos de variáveis de ambiente, catálogo de scripts e modos de execução.
+
+Para operar tarefas no Notion e consultar o canal Alexa, consulte o
+[Manual de Uso](./MANUAL_DE_USO.md).
 
 `make bootstrap` instala dependências na raiz deste repo. Docker local não
 é requisito do runtime Railway. O Compose legado não provisiona o PostgreSQL

@@ -22,8 +22,12 @@ if (!runtimeApiKey) throw new Error("RUNTIME_API_KEY is required");
 const app = Fastify({ logger: true, bodyLimit: 512 * 1024 });
 const store = new PostgresTaskStateStore();
 const alexa = alexaConfig();
-const conversationStore = new PostgresConversationStore({ pool: store.pool,
-  retentionDays: Number(process.env.CONVERSATION_RETENTION_DAYS || 7) });
+const retentionDaysRaw = process.env.CONVERSATION_RETENTION_DAYS;
+const retentionDays = retentionDaysRaw ? parseInt(retentionDaysRaw, 10) : 7;
+if (retentionDaysRaw && !Number.isInteger(retentionDays)) {
+  throw new Error(`CONVERSATION_RETENTION_DAYS must be an integer, got: "${retentionDaysRaw}"`);
+}
+const conversationStore = new PostgresConversationStore({ pool: store.pool, retentionDays });
 const conversationGateway = new ConversationGateway({ store: conversationStore,
   taskIds: alexa.taskIds, respond: alexaResponse });
 const notion = new NotionSourceAdapter();

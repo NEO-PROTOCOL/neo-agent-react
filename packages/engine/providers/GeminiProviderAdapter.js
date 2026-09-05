@@ -13,7 +13,7 @@ async function withTimeout(promise, ms, label) {
 }
 
 export class GeminiProviderAdapter extends ProviderAdapter {
-  constructor({ apiKey = process.env.GEMINI_API_KEY, defaultModel = "gemini-3.5-flash-lite" } = {}) {
+  constructor({ apiKey = process.env.GEMINI_API_KEY, defaultModel = "gemini-2.0-flash" } = {}) {
     super({ id: "gemini", aliases: ["gemini-1.5-pro"] });
     this.apiKey = apiKey;
     this.defaultModel = defaultModel;

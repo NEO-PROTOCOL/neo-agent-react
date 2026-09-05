@@ -11,6 +11,18 @@ export class AgentRunner {
   buildSystemInstruction(systemConfig, redisContext, documents = []) {
     // Wrap context in a delimited block to reduce indirect prompt injection risk
     const contextBlock = JSON.stringify(redisContext);
+
+    // Guard against runaway context payloads that could truncate the constraints
+    // section from the effective prompt window. 512 KB is a safe upper bound for
+    // structured task data; legitimate contexts are typically under 50 KB.
+    const MAX_CONTEXT_BYTES = 512 * 1024;
+    if (Buffer.byteLength(contextBlock) > MAX_CONTEXT_BYTES) {
+      throw new Error(
+        `Context payload too large: ${Buffer.byteLength(contextBlock)} bytes (max ${MAX_CONTEXT_BYTES}). ` +
+        "Ensure task content is not embedding raw file dumps."
+      );
+    }
+
     let prompt = `
 [IDENTITY]
 Voce e um no autonomo do ecossistema NEO.

@@ -147,6 +147,7 @@ function assessPlan(task, plan) {
   return null;
 }
 
+
 export function decideGuardian({ task, plan, execution, review, discovery, attempt }) {
   const discoveryProblem = assessDiscovery(discovery);
   if (discoveryProblem) return { decision: "NEEDS_HUMAN", rule: discoveryProblem };
@@ -192,6 +193,15 @@ export function decideGuardian({ task, plan, execution, review, discovery, attem
         ? "LOW_RISK_CONTEXT_EVIDENCE_PASS"
         : "LOW_RISK_LOCAL_EVIDENCE_PASS",
   };
+}
+
+
+// Parses the attempt number from a review ref string (e.g. "review_2" → 2, null → 0).
+// Centralising this eliminates the repeated ternary chains that break when max_attempts changes.
+function reviewRefToAttempt(reviewRef) {
+  if (!reviewRef) return 0;
+  const match = /^review_(\d+)$/.exec(reviewRef);
+  return match ? Number(match[1]) : 1;
 }
 
 export class PilotLoop {
@@ -625,14 +635,14 @@ export class PilotLoop {
       sessionId: intent.task_id,
       content: `Pilot ${intent.task_id}: ${decision} por ${rule}.`,
     });
+    const finalAttempt = reviewRefToAttempt(reviewRef);
     await this.#status(
       intent.task_id,
       decision,
-      reviewRef === "review_2" ? 2 : reviewRef ? 1 : 0,
+      finalAttempt,
       memory.status
     );
     const finalState = await this.worker.getContext(intent.task_id);
-    const finalAttempt = reviewRef === "review_2" ? 2 : reviewRef ? 1 : 0;
     const artifact = finalAttempt
       ? finalState[`execution_${finalAttempt}`]?.action?.output || null
       : null;
@@ -651,7 +661,7 @@ export class PilotLoop {
 
   #resultFromState(taskId, state, error) {
     const approval = ApprovalSchema.parse(state.approval);
-    const finalAttempt = approval.review_ref === "review_2" ? 2 : approval.review_ref ? 1 : 0;
+    const finalAttempt = reviewRefToAttempt(approval.review_ref);
     const artifact = finalAttempt
       ? state[`execution_${finalAttempt}`]?.action?.output || null
       : null;

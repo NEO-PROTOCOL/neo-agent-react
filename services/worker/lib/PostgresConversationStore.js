@@ -29,7 +29,12 @@ export class PostgresConversationStore {
         timer = setTimeout(() => reject(new ConversationConflict("CONVERSATION_BUSY")), 500);
       })]);
     } catch (error) {
-      pending.then((lateClient) => lateClient.release(), () => {});
+      // Guarantee the late-arriving client is always returned to the pool.
+      // The async IIFE has its own try/catch so a double-release or pool error
+      // never generates an unhandled rejection that could crash the process.
+      (async () => {
+        try { (await pending).release(); } catch { /* already released or never connected */ }
+      })();
       throw error;
     } finally { clearTimeout(timer); }
     try {

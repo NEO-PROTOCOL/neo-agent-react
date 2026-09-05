@@ -1,4 +1,9 @@
+import { createHash } from "node:crypto";
 import { planNotionIngestion } from "./NotionIngestion.js";
+
+function stableEventKey(taskId, key, value) {
+  return `${taskId}\0${key}\0${createHash("sha256").update(JSON.stringify(value)).digest("hex")}`;
+}
 
 export class MemoryTaskStateStore {
   constructor() {
@@ -7,6 +12,7 @@ export class MemoryTaskStateStore {
     this.nextOutboxId = 1;
     this.notionSources = new Map();
     this.events = [];
+    this._eventKeys = new Set(); // O(1) dedup
   }
 
   async isReady() {
@@ -42,8 +48,11 @@ export class MemoryTaskStateStore {
     const task = this.tasks.get(taskId);
     if (!task) throw new Error(`Unknown task: ${taskId}`);
     task[key] = structuredClone(value);
-    const event = { taskId, key, value: structuredClone(value) };
-    if (!this.events.some((existing) => JSON.stringify(existing) === JSON.stringify(event))) this.events.push(event);
+    const eventKey = stableEventKey(taskId, key, value);
+    if (!this._eventKeys.has(eventKey)) {
+      this._eventKeys.add(eventKey);
+      this.events.push({ taskId, key, value: structuredClone(value) });
+    }
   }
 
   async listTaskSummaries() {

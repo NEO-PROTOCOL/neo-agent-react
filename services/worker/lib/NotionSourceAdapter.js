@@ -71,7 +71,12 @@ export class NotionSourceAdapter {
       pages.push(page);
     } else {
       let cursor;
+      const MAX_PAGES = 50; // 50 × 100 = 5 000 tasks max per poll — prevents unbounded loops
+      let page = 0;
       do {
+        if (page >= MAX_PAGES) {
+          throw new Error(`Notion pagination exceeded ${MAX_PAGES} pages — datasource may be too large`);
+        }
         const filters = [{ property: "Incluir no Agent", checkbox: { equals: true } }];
         if (editedAfter) filters.push({ timestamp: "last_edited_time", last_edited_time: { after: new Date(editedAfter).toISOString() } });
         const response = await this.#request("/v1/data_sources/" + encodeURIComponent(this.dataSourceId) + "/query", {
@@ -82,6 +87,7 @@ export class NotionSourceAdapter {
         const result = await response.json();
         pages.push(...result.results);
         cursor = result.has_more ? result.next_cursor : undefined;
+        page += 1;
       } while (cursor);
     }
     const selected = pages.filter((p) => !p.in_trash && !p.archived && p.properties?.["Incluir no Agent"]?.checkbox === true);

@@ -318,13 +318,18 @@ export class RuntimeCoordinator {
   }
 
   async close() {
+    // Step 1: stop accepting new jobs and drain in-flight work.
     await Promise.allSettled([
       this.runWorker?.close(),
       this.notificationWorker?.close(),
-      this.runQueue.close(),
-      this.notificationQueue.close(),
       this.neoWorker?.close(),
     ]);
+    // Step 2: close the queue clients (no more enqueue after workers drained).
+    await Promise.allSettled([
+      this.runQueue.close(),
+      this.notificationQueue.close(),
+    ]);
+    // Step 3: release Redis connections only after all clients that use them are gone.
     await Promise.allSettled([
       this.runQueueConnection.quit(),
       this.runWorkerConnection.quit(),

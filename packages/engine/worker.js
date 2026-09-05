@@ -9,11 +9,27 @@ const PROTO_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 
 export class NeoWorker {
   constructor({ stateStore = null, logger = console, persistNodeResults = true } = {}) {
-    // Instance-level clients — never shared across instances.
-    // Using a stored Promise prevents concurrent connect() calls (TOCTOU fix).
     this._redis = createClient({ url: process.env.REDIS_URL });
     this._publisher = this._redis.duplicate();
-    this._connectPromise = null;
+    // Eagerly assign the Promise so concurrent callers share one connection attempt.
+    // Assigning in the constructor (not lazily in _ensureConnected) eliminates the
+    // TOCTOU window where two concurrent calls both see null and both call connect().
+    this._connectPromise = Promise.all([
+      this._redis.connect(),
+      this._publisher.connect(),
+    ]);
+    // Prevent unhandled 'error' events from crashing the process when Redis is
+    // temporarily unreachable. Errors surface through _connectPromise rejection.
+    this._redis.on("error", (err) => {
+      if (typeof this.logger.warn === "function") {
+        this.logger.warn({ event: "redis_client_error", message: err.message });
+      }
+    });
+    this._publisher.on("error", (err) => {
+      if (typeof this.logger.warn === "function") {
+        this.logger.warn({ event: "redis_publisher_error", message: err.message });
+      }
+    });
     this.stateStore = stateStore;
     this.logger = logger;
     this.persistNodeResults = persistNodeResults;
@@ -24,12 +40,6 @@ export class NeoWorker {
   }
 
   async _ensureConnected() {
-    if (!this._connectPromise) {
-      this._connectPromise = Promise.all([
-        this._redis.connect(),
-        this._publisher.connect(),
-      ]);
-    }
     await this._connectPromise;
   }
 

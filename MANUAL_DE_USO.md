@@ -103,11 +103,11 @@ No primeiro E2E, use a tarefa autorizada
 `Preparar checklist mínimo da semana`:
 
 ```text
-abrir neo assistente
+abrir neo agent
 Como está Preparar checklist mínimo da semana?
 E os critérios de aceite?
 encerrar
-abrir neo assistente
+abrir neo agent
 ```
 
 Na última abertura, o Neo deve retomar a tarefa anterior. Isso prova uma

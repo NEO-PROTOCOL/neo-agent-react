@@ -232,7 +232,7 @@ test("Fastify raw body isolation, Alexa-only auth, disabled route and signed tra
 
 test("interaction model: pt-BR invocation, one search slot, no Lambda/business logic; safe plain text responses", async () => {
   const model = JSON.parse(await readFile(new URL("../../../channels/alexa/interaction-model.pt-BR.json", import.meta.url), "utf8"));
-  assert.equal(model.interactionModel.languageModel.invocationName, "neo assistente");
+  assert.equal(model.interactionModel.languageModel.invocationName, "neo agent");
   assert.equal(model.interactionModel.dialog.delegationStrategy, "SKILL_RESPONSE");
   const response = alexaResponse("token=secret https://private.example/value");
   assert.equal(response.response.outputSpeech.type, "PlainText");

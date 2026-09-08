@@ -1,9 +1,68 @@
 # Railway Deploy
 
 ```text
-Status: NOTION E2E APPROVED / CONTINUOUS POLLING VERIFIED
+Status: NOTION E2E APPROVED / ALEXA SIGNED E2E VERIFIED
 Mode: PERSISTENT AGENT RUNTIME
 ```
+
+## Snapshot operacional — 2026-09-08
+
+Este snapshot complementa o E2E Notion abaixo e registra a validação produtiva
+do canal Alexa. O serviço continua em modo de desenvolvimento/teste na Alexa;
+nenhuma submissão pública foi executada.
+
+- Git: `f6ff9fca7c34190b72f15d2300219a53a403828c`;
+- deployment Railway: `9225ce48-b1d9-4ae1-b0ef-8ada73d52be1`, `SUCCESS`;
+- builder efetivo: `Dockerfile` em `/Dockerfile`, com
+  `node:22.22.0-bookworm-slim`;
+- pre-deploy: `pnpm db:migrate`; start: `pnpm start:worker-api`;
+- novo container iniciado em `2026-09-08T18:56:23Z`;
+- `GET /ready`: HTTP `200`, incluindo `alexa: ok`, `notion: ok` e
+  `notion_polling: enabled`;
+- `GET /privacy/alexa`: HTTP `200`, `text/html; charset=utf-8`;
+- policy pública da Skill:
+  `https://neo-agent-react-production.up.railway.app/privacy/alexa`.
+- a mesma URL foi salva no campo `Privacy Policy URL` do Store Preview;
+- a primeira frase de exemplo, que estava concatenada, foi normalizada para
+  `Alexa, abrir neo agent`.
+
+### Prova Alexa após substituição do container
+
+No simulador oficial em `pt-BR`, uma sessão foi encerrada e a Skill foi aberta
+novamente depois do início do novo container. A resposta foi:
+
+```text
+Sou o Neo. Retomando nossa conversa sobre
+Preparar checklist mínimo da semana. O que você quer consultar?
+```
+
+O launch chegou a `/channels/alexa` como POST assinado, retornou HTTP `200` e
+gerou `alexa_turn_completed`, `replayed=false`. Os logs do mesmo container
+registram requisições concluídas às `19:02:07Z`, `19:03:08Z` e `19:03:16Z`.
+Nenhum identificador Alexa, consent token ou conteúdo sensível é registrado
+neste documento.
+
+A retomada após nova sessão e novo container comprova que o contexto veio do
+PostgreSQL. Ela não depende da memória do processo e não executa novamente o
+loop agentic da tarefa consultada.
+
+### Correção do deadline do provider
+
+O `ConversationGateway` agora aplica deadline real com `Promise.race`, além de
+abortar providers cooperativos. Um provider que ignore `AbortSignal` não pode
+mais manter a requisição indefinidamente. A evidência persistida usa apenas os
+códigos seguros `CONVERSATION_TIMEOUT` e `CONVERSATION_PROVIDER_ERROR`.
+
+Validações: `pnpm test` com 51 testes aprovados e zero cancelados, lint,
+typecheck da UI e `git diff --check`. A Skill continua read-only e não recebeu
+novas capacidades.
+
+### Certificação ainda não executada
+
+A página pública de privacidade já está disponível e sua URL foi configurada no
+console. Ainda cabem ao operador as declarações legais de Privacy & Compliance
+e a decisão explícita de submeter a Skill. Não tratar build, teste em
+Development ou política publicada como certificação/aprovação da Amazon.
 
 ## Snapshot operacional — 2026-09-03
 

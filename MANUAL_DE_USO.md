@@ -13,8 +13,10 @@ evidências datadas e configuração Railway, use
 - **Disponível:** preflight de discovery pelo NEO Orchestrator. O readiness
   está saudável; o E2E Notion observado decidiu `not_required` e não comprova
   sozinho uma consulta cross-domain produtiva.
-- **Pronto para validação final:** canal Alexa no Railway. Readiness saudável
-  não substitui o E2E assinado no simulador nem a prova de retomada de sessão.
+- **Operacional em Development:** canal Alexa read-only no Railway, com E2E
+  assinado, consulta de tarefa e retomada de contexto no PostgreSQL comprovados
+  após substituição do container em 2026-09-08. A Skill ainda não foi submetida
+  para certificação pública.
 - **Disponíveis no código local:** skills de Calendário, Lembretes e
   decomposição de tarefas no Mac. O teste atual não comprova permissões reais
   dos apps e elas não fazem parte do runtime Linux do Railway.
@@ -117,6 +119,10 @@ abrir neo agent
 Na última abertura, o Neo deve retomar a tarefa anterior. Isso prova uma
 sequência diferente de `/ready`: requisição assinada, consulta ao PostgreSQL,
 continuidade entre turnos e recuperação de contexto persistente.
+
+Este fluxo foi comprovado no simulador oficial em 2026-09-08, depois de um
+deployment que substituiu o container. Use o mesmo roteiro como smoke test
+após mudanças de endpoint, credenciais autorizadas ou persistência.
 
 O perfil escolhido para avaliação é Ricardo, velocidade `105%`, volume
 `medium`, sem alteração de pitch e com pausas curtas de `200ms`. Enquanto o

@@ -26,13 +26,16 @@ const edgeTypes: EdgeTypes = { default: NeoEdge };
 
 const FLOW_ID = "neo_flow_01";
 
-let _nodeCounter = 1;
-function nextId(prefix: string) { return `${prefix}_${(_nodeCounter++).toString().padStart(2, "0")}`; }
+// Counter lives in a ref — persists across re-renders, not shared across hot-reload module instances
 
 export default function HomePage() {
   const [isMounted, setIsMounted] = useState(false);
   const canvasWrapRef = useRef<HTMLDivElement>(null);
   const dotLayerRef   = useRef<HTMLDivElement>(null);
+  const nodeCounterRef = useRef(1);
+  const nextId = useCallback((prefix: string) =>
+    `${prefix}_${(nodeCounterRef.current++).toString().padStart(2, "0")}`,
+  []);
 
   const handleMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     if (!dotLayerRef.current || !canvasWrapRef.current) return;
@@ -61,7 +64,7 @@ export default function HomePage() {
 
   useEffect(() => { setIsMounted(true); }, []);
   useEffect(() => { if (nodes.length === 0) initGraph(initialNodes, []); }, [nodes.length, initGraph, initialNodes]);
-  useEffect(() => listenToFlow(FLOW_ID), [listenToFlow]);
+  useEffect(() => listenToFlow(FLOW_ID), [listenToFlow]); // returns cleanup fn — React calls it on unmount
 
   const handleAdd = useCallback((def: NodeDef) => {
     const id = nextId(def.nodeType);

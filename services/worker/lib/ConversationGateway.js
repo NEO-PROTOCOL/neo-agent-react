@@ -87,7 +87,7 @@ export class ConversationGateway {
           : /contexto|objetivo|descricao/.test(query) ? "CONTEXT"
             : /status|como esta|situacao|andamento|consulte|consultar|sobre/.test(query) || matches.length ? "STATUS" : null;
       if (!facet) {
-      const started = this.now();
+        const started = this.now();
         evidence.provider = this.provider;
         evidence.model = this.model || null;
         try {
@@ -122,7 +122,8 @@ export class ConversationGateway {
             async (diagnostic) => { evidence.provider_diagnostic = diagnostic; });
           if (!parsed || Object.keys(parsed).length !== 1 || !facets.includes(parsed.facet)) {
             evidence.validation_error = "INVALID_FACET_SCHEMA";
-            evidence.provider_diagnostic.accepted = false;
+            // provider_diagnostic may be undefined if recordDiagnostic threw — use optional chaining
+            if (evidence.provider_diagnostic) evidence.provider_diagnostic.accepted = false;
             throw new Error("INVALID_FACET_SCHEMA");
           }
           facet = parsed.facet;

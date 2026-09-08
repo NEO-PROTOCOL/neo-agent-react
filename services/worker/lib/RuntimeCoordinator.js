@@ -212,6 +212,15 @@ export class RuntimeCoordinator {
   }
 
   async isReady() {
+    // Guard: start() may not have been called yet
+    if (!this.discoveryGateway || !this.contextRetriever) {
+      return {
+        ok: false, postgres: "unknown", redis: "unknown", llm: "unavailable",
+        context_discovery: "unavailable", context_sources: "unavailable",
+        notion: "unknown", notion_polling: this.notionPollingEnabled ? "enabled" : "disabled",
+        providers: Object.fromEntries(["resend", "telegram", "ifttt"].map((c) => [c, "unknown"])),
+      };
+    }
     const [postgres, redis, orchestrator, notion] = await Promise.allSettled([
       this.store.isReady(),
       this.runQueueConnection.ping(),

@@ -78,7 +78,13 @@ export class NotionSourceAdapter {
           throw new Error(`Notion pagination exceeded ${MAX_PAGES} pages — datasource may be too large`);
         }
         const filters = [{ property: "Incluir no Agent", checkbox: { equals: true } }];
-        if (editedAfter) filters.push({ timestamp: "last_edited_time", last_edited_time: { after: new Date(editedAfter).toISOString() } });
+        if (editedAfter) {
+          const afterDate = new Date(editedAfter);
+          if (!Number.isFinite(afterDate.getTime())) {
+            throw new Error(`Invalid editedAfter value: ${JSON.stringify(editedAfter)}`);
+          }
+          filters.push({ timestamp: "last_edited_time", last_edited_time: { after: afterDate.toISOString() } });
+        }
         const response = await this.#request("/v1/data_sources/" + encodeURIComponent(this.dataSourceId) + "/query", {
           method: "POST", body: { page_size: 100, ...(cursor ? { start_cursor: cursor } : {}),
             filter: filters.length === 1 ? filters[0] : { and: filters } },

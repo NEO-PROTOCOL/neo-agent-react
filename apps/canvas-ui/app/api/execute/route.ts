@@ -25,33 +25,32 @@ export async function POST(req: NextRequest) {
     return Response.json({ error: "WORKER_BASE_URL não configurado" }, { status: 503 });
   }
 
-  console.log(`[execute] Chamando worker em: ${workerUrl}/flows/${flowId}/execute`);
-  console.log(`[execute] Nodes: ${JSON.stringify(nodes)}`);
+  // Log only safe metadata — never payload content
+  console.log(`[execute] flowId=${flowId} nodes=${nodes.length}`);
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 120_000); // 2 min
 
   try {
-    const url = `${workerUrl}/flows/${flowId}/execute`;
-    console.log(`[execute] URL completa: ${url}`);
-
-    const upstream = await fetch(url, {
+    const upstream = await fetch(`${workerUrl}/flows/${flowId}/execute`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ nodes }),
       signal: controller.signal,
     });
 
-    console.log(`[execute] Status do worker: ${upstream.status}`);
+    console.log(`[execute] worker_status=${upstream.status} flowId=${flowId}`);
     const data = await upstream.json();
-    console.log(`[execute] Resposta do worker: ${JSON.stringify(data)}`);
     return Response.json(data, { status: upstream.status });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Erro ao chamar worker";
-    console.error(`[execute] Erro: ${message}`, err);
-    return Response.json({ error: message, details: String(err) }, { status: 502 });
+    const isTimeout = err instanceof Error && err.name === "AbortError";
+    // Internal details stay in server logs only, never sent to client
+    console.error(`[execute] worker_error flowId=${flowId}`, err);
+    return Response.json(
+      { error: isTimeout ? "timeout_calling_worker" : "worker_unreachable" },
+      { status: isTimeout ? 504 : 502 }
+    );
   } finally {
     clearTimeout(timeout);
   }
 }
-

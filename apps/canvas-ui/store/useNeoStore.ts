@@ -32,7 +32,6 @@ interface NeoState {
   setSelectedNode: (id: string | null) => void;
   setNodeStatus: (nodeId: string, status: NodeExecutionStatus) => void;
   setEdgeStatus: (edgeId: string, status: EdgeFlowStatus) => void;
-  simulateFlow: (nodeId: string) => Promise<void>;
   listenToFlow: (flowId: string) => () => void;
 }
 
@@ -89,39 +88,57 @@ export const useNeoStore = create<NeoState>((set, get) => ({
     });
   },
 
-  simulateFlow: async (nodeId) => {
-    const { setNodeStatus } = get();
-    setNodeStatus(nodeId, "running");
-    await new Promise((resolve) => setTimeout(resolve, 2000));
-    setNodeStatus(nodeId, "success");
-  },
+  // simulateFlow removed — was only used in early development and had no real use
+  // If needed for demo/test: call setNodeStatus directly with a timer
 
   listenToFlow: (flowId) => {
     const { setNodeStatus } = get();
     const url = `/api/flow-stream?flowId=${encodeURIComponent(flowId)}`;
-    const eventSource = new EventSource(url);
+    let eventSource: EventSource | null = null;
+    let retryDelay = 1_000;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let closed = false;
 
-    eventSource.onmessage = (event) => {
-      try {
-        const payload = JSON.parse(event.data) as {
-          nodeId?: unknown;
-          status?: unknown;
-          data?: unknown;
-        };
-        const nodeId = typeof payload.nodeId === "string" ? payload.nodeId : null;
-        const status = typeof payload.status === "string" ? payload.status : null;
-        if (nodeId && nodeId.length > 0 && status && NODE_STATUSES.has(status as NodeExecutionStatus)) {
-          setNodeStatus(nodeId, status as NodeExecutionStatus);
+    function connect() {
+      if (closed) return;
+      eventSource = new EventSource(url);
+
+      eventSource.onmessage = (event) => {
+        retryDelay = 1_000; // reset backoff on successful message
+        try {
+          const payload = JSON.parse(event.data) as {
+            nodeId?: unknown;
+            status?: unknown;
+            data?: unknown;
+          };
+          const nodeId = typeof payload.nodeId === "string" ? payload.nodeId : null;
+          const status = typeof payload.status === "string" ? payload.status : null;
+          if (nodeId && nodeId.length > 0 && status && NODE_STATUSES.has(status as NodeExecutionStatus)) {
+            setNodeStatus(nodeId, status as NodeExecutionStatus);
+          }
+        } catch (error) {
+          console.error("[NEO_CLIENT] Erro ao processar evento SSE", error);
         }
-      } catch (error) {
-        console.error("[NEO_CLIENT] Erro ao processar evento SSE", error);
-      }
-    };
+      };
 
-    eventSource.onerror = () => {
-      console.warn("[NEO_CLIENT] SSE desconectado do fluxo", flowId);
-    };
+      eventSource.onerror = () => {
+        eventSource?.close();
+        eventSource = null;
+        if (closed) return;
+        // Exponential backoff: 1s → 2s → 4s → 8s → 16s (max)
+        const delay = Math.min(retryDelay, 16_000);
+        retryDelay = delay * 2;
+        console.warn(`[NEO_CLIENT] SSE desconectado. Reconectando em ${delay}ms...`);
+        retryTimer = setTimeout(connect, delay);
+      };
+    }
 
-    return () => eventSource.close();
+    connect();
+
+    return () => {
+      closed = true;
+      if (retryTimer) clearTimeout(retryTimer);
+      eventSource?.close();
+    };
   },
 }));

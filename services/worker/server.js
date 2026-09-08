@@ -11,6 +11,7 @@ import {
 import { PostgresTaskStateStore } from "./lib/PostgresTaskStateStore.js";
 import { RuntimeCoordinator } from "./lib/RuntimeCoordinator.js";
 import { alexaConfig, alexaResponse, isAlexaRoute, registerAlexaChannel } from "./lib/AlexaChannel.js";
+import { ALEXA_PRIVACY_PATH, registerAlexaPrivacy } from "./lib/AlexaPrivacy.js";
 import { ConversationGateway } from "./lib/ConversationGateway.js";
 import { PostgresConversationStore } from "./lib/PostgresConversationStore.js";
 
@@ -57,7 +58,7 @@ app.addHook("onRequest", async (request, reply) => {
   // Only the registered raw-body Alexa route has this server-owned flag.
   // It verifies Amazon signatures, application ID and the development user itself.
   if (isAlexaRoute(request)) return;
-  if (["/live", "/ready", "/health"].includes(request.url.split("?")[0])) return;
+  if (["/live", "/ready", "/health", ALEXA_PRIVACY_PATH].includes(request.url.split("?")[0])) return;
   if (!authorized(request.headers.authorization)) {
     return reply.code(401).send({ error: "unauthorized" });
   }
@@ -66,6 +67,7 @@ app.addHook("onRequest", async (request, reply) => {
 const alexaChannel = await registerAlexaChannel(app, {
   config: alexa, gateway: conversationGateway, store: conversationStore,
 });
+registerAlexaPrivacy(app);
 async function readiness() {
   const [health, alexaHealth] = await Promise.all([runtime.isReady(), alexaChannel.health()]);
   return { ...health, ok: health.ok && alexaHealth !== "unavailable", alexa: alexaHealth };

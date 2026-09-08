@@ -6,6 +6,7 @@ import Fastify from "fastify";
 import { alexaConfig, alexaResponse, BoundedAlexaSignatureVerifier, isAlexaRoute,
   normalizeAlexa, registerAlexaChannel } from "../lib/AlexaChannel.js";
 import { checksum, ConversationGateway, safeText } from "../lib/ConversationGateway.js";
+import { ALEXA_PRIVACY_PATH, alexaPrivacyPolicy, registerAlexaPrivacy } from "../lib/AlexaPrivacy.js";
 import { PostgresConversationStore } from "../lib/PostgresConversationStore.js";
 
 const config = alexaConfig({ ALEXA_ENABLED: "true", ALEXA_SKILL_ID: "amzn1.ask.skill.fixture",
@@ -151,6 +152,7 @@ test("slow provider times out, no task mutation; expired context is not restored
   }) } });
   await gateway.handle(input({ kind: "IntentRequest", text: "Preparar checklist mínimo da semana" }));
   assert.match(speech(await gateway.handle(input({ id: "r2", kind: "IntentRequest", text: "O que precisa satisfazer" }))), /Não consegui/);
+  assert.equal(pool.turns[1].evidence.provider_error, "CONVERSATION_TIMEOUT");
   pool.expired = true;
   assert.match(speech(await gateway.handle(input({ id: "r3" }))), /Qual tarefa/);
 });
@@ -243,4 +245,19 @@ test("interaction model: pt-BR invocation, one search slot, no Lambda/business l
   const sql = await readFile(new URL("../migrations/002_conversation.sql", import.meta.url), "utf8");
   assert.match(sql, /UNIQUE \(conversation_id, request_id\)/);
   assert.doesNotMatch(sql, /(?:UPDATE|DELETE FROM|ALTER TABLE) agent_runtime\.(?:tasks|task_events|approvals)/);
+});
+
+test("privacy policy is public, pt-BR and describes the persisted Alexa data", async () => {
+  const app = Fastify();
+  registerAlexaPrivacy(app);
+  try {
+    const response = await app.inject({ method: "GET", url: ALEXA_PRIVACY_PATH });
+    assert.equal(response.statusCode, 200);
+    assert.match(response.headers["content-type"], /text\/html/);
+    assert.match(response.body, /lang="pt-BR"/);
+    assert.match(response.body, /identificador pseudônimo de usuário/);
+    assert.match(response.body, /por até 30 dias/);
+    assert.match(response.body, /não oferece compras ou publicidade/);
+    assert.equal(response.body, alexaPrivacyPolicy());
+  } finally { await app.close(); }
 });

@@ -99,6 +99,10 @@ Resultados, eventos e approvals permanecem no PostgreSQL.
 O canal Alexa é read-only e consulta apenas IDs explicitamente autorizados em
 `ALEXA_TASK_IDS`. Ele não altera tarefas, agenda compromissos ou executa ações.
 
+A política de privacidade específica da Skill é publicada pelo próprio runtime
+em `/privacy/alexa`. Ela descreve os identificadores, perguntas e contexto
+persistidos, a retenção máxima e o canal de solicitação de exclusão.
+
 No primeiro E2E, use a tarefa autorizada
 `Preparar checklist mínimo da semana`:
 
